@@ -92,6 +92,7 @@ export default function About() {
                   src={priestMessage.imageUrl}
                   alt={priestMessage.name}
                   className="w-full rounded-2xl shadow-xl"
+                  loading="lazy"
                 />
               </div>
             )}
@@ -126,6 +127,7 @@ export default function About() {
                 src="https://res.cloudinary.com/dxcwgsjvk/image/upload/v1782196872/REGISTRATION_FOR_COMPANY_DOC20260609_13510570_ktvv5z.jpg"
                 alt="Parish Inauguration"
                 className="w-full rounded-2xl shadow-xl mb-4"
+                loading="lazy"
               />
               <p className="text-gray-600 italic">7 October 2020 — Feast of Our Lady of the Rosary</p>
             </div>

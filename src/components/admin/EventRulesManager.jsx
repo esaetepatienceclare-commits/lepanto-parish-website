@@ -1,405 +1,328 @@
 import { useEffect, useState } from "react";
 import {
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  Timestamp,
-  query,
-  where
+  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp, query, where
 } from "firebase/firestore";
-
 import { db } from "../../firebase";
 
+// ==================== HELPERS ====================
+const getOccurrence = (rule) => {
+  if (rule.occurrence) return rule.occurrence;
+  if (rule.weekOfMonth) {
+    const map = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "last" };
+    return map[rule.weekOfMonth] || "1st";
+  }
+  return "1st";
+};
+
+const getDayNumber = (day) => ({ sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }[day] ?? 0);
+
+const getScheduleText = (rule) => {
+  if (rule.type === "weekly") return `Every ${rule.dayOfWeek}`;
+  if (rule.type === "monthly") return `${getOccurrence(rule)} ${rule.dayOfWeek} of every month`;
+  if (rule.type === "fixed" && rule.date) return `Fixed: ${new Date(rule.date).toLocaleDateString()}`;
+  return "Unknown";
+};
+
+const calculateFutureDates = (rule, weeks = 12) => {
+  const dates = [];
+  const today = new Date();
+  const occurrence = getOccurrence(rule);
+
+  for (let i = 0; i < weeks; i++) {
+    const base = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    let eventDate;
+
+    if (rule.type === "weekly") {
+      const target = getDayNumber(rule.dayOfWeek);
+      let diff = target - base.getDay();
+      if (diff < 0) diff += 7;
+      eventDate = new Date(base);
+      eventDate.setDate(eventDate.getDate() + diff);
+    } 
+    else if (rule.type === "monthly") {
+      const targetDay = getDayNumber(rule.dayOfWeek);
+      if (occurrence === "last") {
+        const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+        let diff = lastDay.getDay() - targetDay;
+        if (diff < 0) diff += 7;
+        eventDate = new Date(lastDay);
+        eventDate.setDate(lastDay.getDate() - diff);
+      } else {
+        const weekNum = parseInt(occurrence);
+        eventDate = new Date(base.getFullYear(), base.getMonth(), 1);
+        eventDate.setDate((weekNum - 1) * 7 + 1);
+        let diff = targetDay - eventDate.getDay();
+        if (diff < 0) diff += 7;
+        eventDate.setDate(eventDate.getDate() + diff);
+      }
+    } 
+    else if (rule.type === "fixed" && rule.date) {
+      eventDate = new Date(rule.date);
+    }
+
+    if (eventDate && rule.time) {
+      const [h, m] = rule.time.split(":").map(Number);
+      eventDate.setHours(h, m || 0);
+    }
+    if (eventDate) dates.push(eventDate);
+  }
+  return dates;
+};
+
+// ==================== MAIN COMPONENT ====================
 export default function EventRulesManager() {
   const [eventRules, setEventRules] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // Add Form
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [type, setType] = useState("weekly");
-  const [dayOfWeek, setDayOfWeek] = useState("sunday");
-  const [weekOfMonth, setWeekOfMonth] = useState(1);
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [location, setLocation] = useState("");
+  const [form, setForm] = useState({
+    title: "", description: "", type: "weekly", dayOfWeek: "sunday",
+    occurrence: "1st", date: "", time: "", location: ""
+  });
 
-  // Edit Form
   const [editingId, setEditingId] = useState(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editType, setEditType] = useState("weekly");
-  const [editDayOfWeek, setEditDayOfWeek] = useState("sunday");
-  const [editWeekOfMonth, setEditWeekOfMonth] = useState(1);
-  const [editDate, setEditDate] = useState("");
-  const [editTime, setEditTime] = useState("");
-  const [editLocation, setEditLocation] = useState("");
+  const [editForm, setEditForm] = useState({});
 
   const fetchRules = async () => {
     setLoading(true);
-    try {
-      const snapshot = await getDocs(collection(db, "eventRules"));
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEventRules(data);
-    } catch (err) {
-      console.error(err);
-    }
+    const snap = await getDocs(collection(db, "eventRules"));
+    setEventRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchRules();
-  }, []);
+  useEffect(() => { fetchRules(); }, []);
 
-  const generateNextDate = (rule) => {
-    const today = new Date();
-    let next = new Date(today);
-
-    if (rule.type === "weekly") {
-      const days = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-      const targetDay = days[rule.dayOfWeek];
-      let diff = targetDay - today.getDay();
-      if (diff < 0) diff += 7;
-      next.setDate(today.getDate() + diff);
-    } else if (rule.type === "monthly") {
-      next.setDate(1);
-      next.setDate((rule.weekOfMonth - 1) * 7 + 1);
-      const targetDay = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }[rule.dayOfWeek];
-      let diff = targetDay - next.getDay();
-      if (diff < 0) diff += 7;
-      next.setDate(next.getDate() + diff);
-    } else if (rule.type === "fixed") {
-      next = new Date(rule.date);
-    }
-
-    if (rule.time) {
-      const [h, m] = rule.time.split(":").map(Number);
-      next.setHours(h, m || 0);
-    }
-
-    return next;
-  };
-
-const createOrUpdateEvent = async (rule, ruleId) => {
-  try {
-    for (let i = 0; i < 8; i++) { // Next 8 weeks
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + i * 7);
-
-      let eventDate;
-
-      if (rule.type === "weekly") {
-        const days = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-        const targetDay = days[rule.dayOfWeek];
-        eventDate = new Date(futureDate);
-        let diff = targetDay - eventDate.getDay();
-        if (diff < 0) diff += 7;
-        eventDate.setDate(eventDate.getDate() + diff);
-      } else if (rule.type === "monthly") {
-        eventDate = new Date(futureDate);
-        eventDate.setDate((rule.weekOfMonth - 1) * 7 + 1);
-        const targetDay = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }[rule.dayOfWeek];
-        let diff = targetDay - eventDate.getDay();
-        if (diff < 0) diff += 7;
-        eventDate.setDate(eventDate.getDate() + diff);
-      } else if (rule.type === "fixed") {
-        eventDate = new Date(rule.date);
-      }
-
-      if (rule.time) {
-        const [h, m] = rule.time.split(":").map(Number);
-        eventDate.setHours(h, m || 0);
-      }
-
-      // Strong duplicate check by rule + exact date
+  // ==================== GENERATE EVENTS ====================
+  const generateEventsSafely = async (rule, ruleId) => {
+    const futureDates = calculateFutureDates(rule);
+    for (const eventDate of futureDates) {
       const q = query(
         collection(db, "events"),
         where("sourceRuleId", "==", ruleId),
         where("eventDate", "==", Timestamp.fromDate(eventDate))
       );
-
       const snap = await getDocs(q);
-
       if (snap.empty) {
+        const expiry = new Date(eventDate);
+        expiry.setHours(23, 59, 0, 0);
         await addDoc(collection(db, "events"), {
           title: rule.title,
           description: rule.description || "",
           location: rule.location || "",
           time: rule.time || "",
-          imageUrl: "",
           sourceRuleId: ruleId,
           autoGenerated: true,
           eventDate: Timestamp.fromDate(eventDate),
+          expiryDate: Timestamp.fromDate(expiry),
           createdAt: Timestamp.now()
         });
       }
     }
-  } catch (err) {
-    console.error(err);
-  }
-};
-const generateThisWeekEvents = async () => {
-  if (!confirm("Generate events for this week from all rules?")) return;
+  };
 
-  setUploading(true);
-
-  try {
-    for (const rule of eventRules) {
-      await createOrUpdateEvent(rule, rule.id);
-    }
-    alert("Events generated for this week!");
-    fetchRules();
-  } catch (err) {
-    console.error(err);
-    alert("Failed to generate events");
-  } finally {
-    setUploading(false);
-  }
-};
-
-  const addRule = async () => {
-    if (!title.trim()) return alert("Title is required");
-
+  // ==================== MANUAL GENERATE (BACKUP) ====================
+  const manualGenerateEvents = async () => {
+    if (!confirm("Generate events for all rules (next 12 weeks)?")) return;
     setUploading(true);
+    try {
+      for (const rule of eventRules) {
+        await generateEventsSafely(rule, rule.id);
+      }
+      alert("Events generated successfully!");
+      fetchRules();
+    } catch (err) {
+      alert("Generation failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
+  // ==================== ADD RULE ====================
+  const addRule = async () => {
+    if (!form.title.trim()) return alert("Title is required");
+    setUploading(true);
     try {
       const newRuleRef = await addDoc(collection(db, "eventRules"), {
-        title,
-        description,
-        type,
-        dayOfWeek,
-        weekOfMonth: Number(weekOfMonth),
-        date,
-        time,
-        location,
-        active: true,
-        createdAt: Timestamp.now()
+        ...form, createdAt: Timestamp.now()
       });
-
-      await createOrUpdateEvent({
-        title,
-        description,
-        type,
-        dayOfWeek,
-        weekOfMonth: Number(weekOfMonth),
-        date,
-        time,
-        location
-      }, newRuleRef.id);
-
+      await generateEventsSafely(form, newRuleRef.id);
       fetchRules();
-      alert("Rule added and event generated!");
-
-      setTitle("");
-      setDescription("");
-      setType("weekly");
-      setDayOfWeek("sunday");
-      setWeekOfMonth(1);
-      setDate("");
-      setTime("");
-      setLocation("");
+      alert("Rule added and events auto-generated!");
+      setForm({ title: "", description: "", type: "weekly", dayOfWeek: "sunday", occurrence: "1st", date: "", time: "", location: "" });
     } catch (err) {
-      console.error(err);
       alert("Failed to add rule");
     } finally {
       setUploading(false);
     }
   };
 
+  // ==================== EDIT ====================
   const startEditing = (rule) => {
     setEditingId(rule.id);
-    setEditTitle(rule.title || "");
-    setEditDescription(rule.description || "");
-    setEditType(rule.type || "weekly");
-    setEditDayOfWeek(rule.dayOfWeek || "sunday");
-    setEditWeekOfMonth(rule.weekOfMonth || 1);
-    setEditDate(rule.date || "");
-    setEditTime(rule.time || "");
-    setEditLocation(rule.location || "");
+    setEditForm({ ...rule, occurrence: getOccurrence(rule) });
   };
 
-  const saveRule = async (id) => {
+  const handleEditChange = (field, value) => {
+    setEditForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const saveRule = async () => {
+    setUploading(true);
     try {
-      await updateDoc(doc(db, "eventRules", id), {
-        title: editTitle,
-        description: editDescription,
-        type: editType,
-        dayOfWeek: editDayOfWeek,
-        weekOfMonth: Number(editWeekOfMonth),
-        date: editDate,
-        time: editTime,
-        location: editLocation,
-      });
-
-      await createOrUpdateEvent({
-        title: editTitle,
-        description: editDescription,
-        type: editType,
-        dayOfWeek: editDayOfWeek,
-        weekOfMonth: Number(editWeekOfMonth),
-        date: editDate,
-        time: editTime,
-        location: editLocation
-      }, id);
-
+      await updateDoc(doc(db, "eventRules", editingId), editForm);
+      await generateEventsSafely(editForm, editingId);
       setEditingId(null);
       fetchRules();
-      alert("Rule updated successfully.");
+      alert("Rule updated.");
     } catch (err) {
-      console.error(err);
-      alert("Failed to update rule");
+      alert("Failed to update");
+    } finally {
+      setUploading(false);
     }
   };
 
-  const cancelEditing = () => setEditingId(null);
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
 
-  const removeRule = async (id) => {
-    if (!confirm("Delete this rule?")) return;
-
+  const deleteRule = async (id) => {
+    if (!confirm("Delete this rule and all its events?")) return;
     try {
       const q = query(collection(db, "events"), where("sourceRuleId", "==", id));
       const snap = await getDocs(q);
       for (const d of snap.docs) await deleteDoc(doc(db, "events", d.id));
-
       await deleteDoc(doc(db, "eventRules", id));
       fetchRules();
-      alert("Rule deleted.");
     } catch (err) {
       console.error(err);
     }
   };
 
-  const cleanupDuplicates = async () => {
-  if (!confirm("Remove duplicate events? This cannot be undone.")) return;
-
-  setUploading(true);
-
-  try {
-    const eventsSnap = await getDocs(collection(db, "events"));
-    const eventsMap = new Map();
-
-    // Group by sourceRuleId + eventDate
-    eventsSnap.docs.forEach(doc => {
-      const data = doc.data();
-      const key = `${data.sourceRuleId}-${data.eventDate?.seconds}`;
-      if (eventsMap.has(key)) {
-        // Delete duplicate
-        deleteDoc(doc(db, "events", doc.id));
-      } else {
-        eventsMap.set(key, doc.id);
-      }
-    });
-
-    alert("Duplicates cleaned up!");
-    fetchRules(); // Refresh if needed
-  } catch (err) {
-    console.error(err);
-    alert("Cleanup failed");
-  } finally {
-    setUploading(false);
-  }
-};
-
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-blue-900">Event Rules Manager</h2>
-
-      {/* Generate This Week Button */}
-      <button 
-        onClick={generateThisWeekEvents}
-        className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded font-medium"
-      >
-        Generate This Week's Events
-      </button>
-
-      <button 
-  onClick={cleanupDuplicates}
-  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded mb-6"
->
-  Cleanup Duplicate Events
-</button>
-
-      {/* Add Rule Form */}
-      <div className="bg-white p-6 rounded-xl shadow border">
-        <h3 className="font-bold mb-4">Add New Rule</h3>
-
-        <input className="w-full border p-3 rounded mb-3" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
-        <textarea className="w-full border p-3 rounded mb-3" rows={3} placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} />
-
-        <select className="w-full border p-3 rounded mb-3" value={type} onChange={e => setType(e.target.value)}>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-          <option value="fixed">Fixed Date</option>
-        </select>
-
-        {(type === "weekly" || type === "monthly") && (
-          <select className="w-full border p-3 rounded mb-3" value={dayOfWeek} onChange={e => setDayOfWeek(e.target.value)}>
-            <option value="sunday">Sunday</option>
-            <option value="monday">Monday</option>
-            <option value="tuesday">Tuesday</option>
-            <option value="wednesday">Wednesday</option>
-            <option value="thursday">Thursday</option>
-            <option value="friday">Friday</option>
-            <option value="saturday">Saturday</option>
-          </select>
-        )}
-
-        {type === "monthly" && (
-          <input className="w-full border p-3 rounded mb-3" type="number" min="1" max="5" value={weekOfMonth} onChange={e => setWeekOfMonth(Number(e.target.value))} />
-        )}
-
-        {type === "fixed" && (
-          <input className="w-full border p-3 rounded mb-3" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        )}
-
-        <input className="w-full border p-3 rounded mb-3" type="time" value={time} onChange={e => setTime(e.target.value)} />
-        <input className="w-full border p-3 rounded mb-5" placeholder="Location" value={location} onChange={e => setLocation(e.target.value)} />
-
-        <button onClick={addRule} disabled={uploading} className="w-full bg-blue-700 text-white py-3 rounded font-bold">
-          {uploading ? "Saving..." : "Add Rule & Generate Event"}
+      {/* HEADER WITH MANUAL BUTTON */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-3xl font-bold text-blue-900">Event Rules Manager</h2>
+        
+        <button 
+          onClick={manualGenerateEvents} 
+          disabled={uploading}
+          className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white px-5 py-2.5 rounded-xl font-medium"
+        >
+          Manual Generate (Backup)
         </button>
       </div>
 
-      {/* Rules List */}
+      {/* ADD NEW RULE FORM */}
+      <div className="bg-white border p-6 rounded-2xl">
+        <h3 className="font-bold mb-4">Add New Rule</h3>
+
+        <input className="w-full border p-3 rounded-xl mb-3" placeholder="Title" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+        <textarea className="w-full border p-3 rounded-xl mb-3" rows={3} placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <select className="border p-3 rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="fixed">Fixed</option>
+          </select>
+
+          {form.type === "monthly" && (
+            <>
+              <select className="border p-3 rounded-xl" value={form.dayOfWeek} onChange={e => setForm({...form, dayOfWeek: e.target.value})}>
+                <option value="sunday">Sunday</option><option value="monday">Monday</option>
+                <option value="tuesday">Tuesday</option><option value="wednesday">Wednesday</option>
+                <option value="thursday">Thursday</option><option value="friday">Friday</option>
+                <option value="saturday">Saturday</option>
+              </select>
+              <select className="border p-3 rounded-xl" value={form.occurrence} onChange={e => setForm({...form, occurrence: e.target.value})}>
+                <option value="1st">1st</option><option value="2nd">2nd</option>
+                <option value="3rd">3rd</option><option value="4th">4th</option>
+                <option value="last">Last</option>
+              </select>
+            </>
+          )}
+
+          {form.type === "fixed" && <input type="date" className="border p-3 rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />}
+          <input type="time" className="border p-3 rounded-xl" value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
+          <input className="border p-3 rounded-xl" placeholder="Location" value={form.location} onChange={e => setForm({...form, location: e.target.value})} />
+        </div>
+
+        <button onClick={addRule} disabled={uploading} className="mt-5 w-full bg-blue-700 text-white py-3 rounded-xl font-semibold">
+          {uploading ? "Saving..." : "Add Rule & Auto Generate Events"}
+        </button>
+      </div>
+
+      {/* EXISTING RULES LIST */}
       <div>
         <h3 className="font-semibold mb-4">Existing Rules ({eventRules.length})</h3>
 
-        {eventRules.map(rule => (
-          <div key={rule.id} className="bg-white border rounded-xl shadow p-6 mb-4">
-            {editingId === rule.id ? (
-              <div>
-                <input className="w-full border p-2 mb-3" value={editTitle} onChange={e => setEditTitle(e.target.value)} />
-                <textarea className="w-full border p-2 mb-3" rows={3} value={editDescription} onChange={e => setEditDescription(e.target.value)} />
-                <input className="w-full border p-2 mb-3" value={editLocation} onChange={e => setEditLocation(e.target.value)} />
-                <input className="w-full border p-2 mb-3" type="time" value={editTime} onChange={e => setEditTime(e.target.value)} />
-                <div className="flex gap-3">
-                  <button onClick={() => saveRule(rule.id)} className="bg-green-700 text-white px-4 py-2 rounded">Save</button>
-                  <button onClick={cancelEditing} className="bg-gray-600 text-white px-4 py-2 rounded">Cancel</button>
+        {loading ? <p>Loading rules...</p> : eventRules.length === 0 ? <p>No rules found.</p> : (
+          eventRules.map(rule => (
+            <div key={rule.id} className="bg-white border p-6 rounded-2xl mb-4">
+              {editingId === rule.id ? (
+                // EDIT FORM
+                <div className="space-y-4">
+                  <input className="w-full border p-3 rounded-xl" value={editForm.title || ""} onChange={e => handleEditChange("title", e.target.value)} />
+                  <textarea className="w-full border p-3 rounded-xl" rows={3} value={editForm.description || ""} onChange={e => handleEditChange("description", e.target.value)} />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <select className="border p-3 rounded-xl" value={editForm.type} onChange={e => handleEditChange("type", e.target.value)}>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="fixed">Fixed</option>
+                    </select>
+
+                    {editForm.type === "monthly" && (
+                      <>
+                        <select className="border p-3 rounded-xl" value={editForm.dayOfWeek} onChange={e => handleEditChange("dayOfWeek", e.target.value)}>
+                          <option value="sunday">Sunday</option><option value="monday">Monday</option>
+                          <option value="tuesday">Tuesday</option><option value="wednesday">Wednesday</option>
+                          <option value="thursday">Thursday</option><option value="friday">Friday</option>
+                          <option value="saturday">Saturday</option>
+                        </select>
+                        <select className="border p-3 rounded-xl" value={editForm.occurrence} onChange={e => handleEditChange("occurrence", e.target.value)}>
+                          <option value="1st">1st</option><option value="2nd">2nd</option>
+                          <option value="3rd">3rd</option><option value="4th">4th</option>
+                          <option value="last">Last</option>
+                        </select>
+                      </>
+                    )}
+                    {editForm.type === "fixed" && <input type="date" className="border p-3 rounded-xl" value={editForm.date || ""} onChange={e => handleEditChange("date", e.target.value)} />}
+                    <input type="time" className="border p-3 rounded-xl" value={editForm.time || ""} onChange={e => handleEditChange("time", e.target.value)} />
+                    <input className="border p-3 rounded-xl" placeholder="Location" value={editForm.location || ""} onChange={e => handleEditChange("location", e.target.value)} />
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={saveRule} disabled={uploading} className="bg-green-600 text-white px-6 py-2.5 rounded-xl">Save Changes</button>
+                    <button onClick={cancelEditing} className="bg-gray-500 text-white px-6 py-2.5 rounded-xl">Cancel</button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div>
-                <h4 className="font-bold text-lg">{rule.title}</h4>
-                <p className="text-gray-600">{rule.description}</p>
-                <div className="text-sm text-gray-500 mt-2">
-                  <p><strong>Type:</strong> {rule.type}</p>
-                  <p><strong>Day:</strong> {rule.dayOfWeek}</p>
-                  {rule.weekOfMonth && <p><strong>Week:</strong> {rule.weekOfMonth}</p>}
-                  {rule.time && <p><strong>Time:</strong> {rule.time}</p>}
-                  {rule.location && <p><strong>Location:</strong> {rule.location}</p>}
+              ) : (
+                // VIEW MODE
+                <div>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-xl text-blue-900">{rule.title}</h4>
+                      <p className="text-gray-600 mt-1">{rule.description}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => startEditing(rule)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-xl text-sm">Edit</button>
+                      <button onClick={() => deleteRule(rule.id)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-sm">Delete</button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-gray-50 rounded-xl text-sm">
+                    <p><strong>Schedule:</strong> {getScheduleText(rule)}</p>
+                    {rule.time && <p><strong>Time:</strong> {rule.time}</p>}
+                    {rule.location && <p><strong>Location:</strong> {rule.location}</p>}
+                  </div>
                 </div>
-                <div className="flex gap-3 mt-4">
-                  <button onClick={() => startEditing(rule)} className="bg-blue-700 text-white px-4 py-2 rounded">Edit</button>
-                  <button onClick={() => removeRule(rule.id)} className="bg-red-700 text-white px-4 py-2 rounded">Delete</button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
