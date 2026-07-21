@@ -17,13 +17,16 @@ export default function GalleryManager() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [mediaType, setMediaType] = useState("image"); // image | youtube | link
+  const [mediaType, setMediaType] = useState("image"); // image | video | youtube | link
   const [mediaUrl, setMediaUrl] = useState("");
   const [imageFile, setImageFile] = useState(null);
+  const [videoFile, setVideoFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const [editingId, setEditingId] = useState(null);
 
   const fileRef = useRef(null);
+  const videoRef = useRef(null);
 
   const fetchGallery = async () => {
     setLoading(true);
@@ -54,6 +57,22 @@ export default function GalleryManager() {
     return data.secure_url;
   };
 
+  const uploadVideo = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", "Lepanto");
+
+    setUploadProgress("Uploading video… this may take a moment");
+
+    const res = await fetch("https://api.cloudinary.com/v1_1/dxcwgsjvk/video/upload", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+    setUploadProgress("");
+    return data.secure_url;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title) return alert("Title is required");
@@ -63,13 +82,16 @@ export default function GalleryManager() {
     try {
       let finalMediaUrl = mediaUrl;
 
-      // Upload image if file selected
       if (mediaType === "image" && imageFile) {
         finalMediaUrl = await uploadImage(imageFile);
       }
 
+      if (mediaType === "video" && videoFile) {
+        finalMediaUrl = await uploadVideo(videoFile);
+      }
+
       if (!finalMediaUrl) {
-        alert("Please provide a media URL or upload an image");
+        alert("Please provide a media URL or upload a file");
         setUploading(false);
         return;
       }
@@ -98,6 +120,7 @@ export default function GalleryManager() {
       alert("Failed to save");
     } finally {
       setUploading(false);
+      setUploadProgress("");
     }
   };
 
@@ -107,8 +130,10 @@ export default function GalleryManager() {
     setMediaType("image");
     setMediaUrl("");
     setImageFile(null);
+    setVideoFile(null);
     setEditingId(null);
     if (fileRef.current) fileRef.current.value = "";
+    if (videoRef.current) videoRef.current.value = "";
   };
 
   const startEdit = (item) => {
@@ -118,6 +143,7 @@ export default function GalleryManager() {
     setMediaUrl(item.mediaUrl || "");
     setEditingId(item.id);
     setImageFile(null);
+    setVideoFile(null);
   };
 
   const handleDelete = async (id) => {
@@ -162,10 +188,16 @@ export default function GalleryManager() {
             <label className="text-sm text-gray-600 mb-1 block">Media Type</label>
             <select
               value={mediaType}
-              onChange={(e) => setMediaType(e.target.value)}
+              onChange={(e) => {
+                setMediaType(e.target.value);
+                setMediaUrl("");
+                setImageFile(null);
+                setVideoFile(null);
+              }}
               className="w-full p-3 border border-gray-300 rounded-xl"
             >
               <option value="image">Image</option>
+              <option value="video">Video Upload</option>
               <option value="youtube">YouTube Video</option>
               <option value="link">External Link / Website</option>
             </select>
@@ -174,7 +206,9 @@ export default function GalleryManager() {
           {/* Media Input */}
           <div>
             <label className="text-sm text-gray-600 mb-1 block">
-              {mediaType === "image" ? "Image URL or Upload" : "URL *"}
+              {mediaType === "image" ? "Image URL or Upload"
+                : mediaType === "video" ? "Upload Video File"
+                : "URL *"}
             </label>
 
             {mediaType === "image" ? (
@@ -194,6 +228,24 @@ export default function GalleryManager() {
                   className="w-full p-3 border border-gray-300 rounded-xl"
                 />
               </div>
+            ) : mediaType === "video" ? (
+              <div className="space-y-3">
+                <input
+                  ref={videoRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setVideoFile(e.target.files[0])}
+                  className="w-full p-3 border border-gray-300 rounded-xl"
+                />
+                {videoFile && (
+                  <p className="text-sm text-gray-500">
+                    Selected: {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(1)} MB)
+                  </p>
+                )}
+                <p className="text-xs text-gray-400">
+                  Supported: MP4, MOV, WebM. Large files may take a moment to upload.
+                </p>
+              </div>
             ) : (
               <input
                 type="text"
@@ -210,6 +262,10 @@ export default function GalleryManager() {
             )}
           </div>
 
+          {uploadProgress && (
+            <p className="text-sm text-blue-600 font-medium animate-pulse">{uploadProgress}</p>
+          )}
+
           <button
             type="submit"
             disabled={uploading}
@@ -217,6 +273,16 @@ export default function GalleryManager() {
           >
             {uploading ? "Saving..." : editingId ? "Update Gallery Item" : "Add to Gallery"}
           </button>
+
+          {editingId && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="w-full border border-gray-300 text-gray-600 py-3 rounded-xl hover:bg-gray-50"
+            >
+              Cancel Edit
+            </button>
+          )}
         </form>
       </div>
 
@@ -237,6 +303,8 @@ export default function GalleryManager() {
                 <div className="h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
                   {item.mediaType === "image" || (!item.mediaType && item.imageUrl) ? (
                     <img src={item.mediaUrl || item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                  ) : item.mediaType === "video" ? (
+                    <video src={item.mediaUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
                   ) : item.mediaType === "youtube" ? (
                     <div className="text-center">
                       <div className="text-4xl mb-1">▶️</div>

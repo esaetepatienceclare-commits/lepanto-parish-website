@@ -5,6 +5,7 @@ import { db } from "../firebase";
 export default function Gallery() {
   const [gallery, setGallery] = useState([]);
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [selectedUploadedVideo, setSelectedUploadedVideo] = useState(null);
 
   useEffect(() => {
     const q = query(collection(db, "gallery"), orderBy("createdAt", "desc"));
@@ -68,7 +69,8 @@ export default function Gallery() {
         <div className="grid md:grid-cols-3 gap-6">
           {gallery.map((item) => {
             const isYouTube = item.mediaType === "youtube" || isYouTubeUrl(item.mediaUrl);
-            const isLink = !isYouTube && item.mediaUrl && !item.mediaUrl.match(/\.(jpeg|jpg|gif|png)$/i);
+            const isUploadedVideo = item.mediaType === "video";
+            const isLink = !isYouTube && !isUploadedVideo && item.mediaUrl && !item.mediaUrl.match(/\.(jpeg|jpg|gif|png)$/i);
             const videoId = isYouTube ? getYouTubeId(item.mediaUrl) : null;
 
             return (
@@ -81,6 +83,8 @@ export default function Gallery() {
                     } else {
                       window.open(item.mediaUrl, "_blank");
                     }
+                  } else if (isUploadedVideo) {
+                    setSelectedUploadedVideo(item.mediaUrl);
                   } else if (item.mediaUrl) {
                     window.open(item.mediaUrl, "_blank");
                   }
@@ -96,6 +100,23 @@ export default function Gallery() {
                       alt={item.title}
                       className="h-72 w-full object-cover group-hover:scale-105 transition duration-500"
                     />
+
+                  ) : isUploadedVideo ? (
+                    // UPLOADED VIDEO — show first frame + play button
+                    <div className="relative h-full bg-gray-900">
+                      <video
+                        src={item.mediaUrl}
+                        className="h-72 w-full object-cover"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="bg-white/20 backdrop-blur-sm text-white rounded-full p-4 text-2xl shadow-lg group-hover:scale-110 transition border border-white/30">
+                          ▶
+                        </div>
+                      </div>
+                    </div>
 
                   ) : isYouTube && videoId ? (
                     // YOUTUBE
@@ -157,6 +178,7 @@ export default function Gallery() {
 
       </div>
 
+      {/* YouTube Modal */}
       {selectedVideo && (
         <div
           className="fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4"
@@ -190,6 +212,29 @@ export default function Gallery() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Uploaded Video Modal */}
+      {selectedUploadedVideo && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[999] p-4"
+          onClick={() => setSelectedUploadedVideo(null)}
+        >
+          <div className="w-full max-w-5xl" onClick={e => e.stopPropagation()}>
+            <video
+              src={selectedUploadedVideo}
+              controls
+              autoPlay
+              className="w-full rounded-2xl max-h-[80vh]"
+            />
+            <button
+              onClick={() => setSelectedUploadedVideo(null)}
+              className="mt-4 text-white hover:text-gray-300 block mx-auto text-sm"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
