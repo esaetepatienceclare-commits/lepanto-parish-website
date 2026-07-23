@@ -13,7 +13,7 @@ export default function Navbar() {
 
       <div className="flex items-center justify-between px-6 py-4">
 
-        {/* Logo - Full Parish Name */}
+        {/* Logo */}
         <div className="font-bold text-lg leading-tight">
           Our Lady of the Most Holy Rosary Parish<br />
           <span className="text-sm font-normal text-blue-300">Lepanto, Asamuk</span>
@@ -105,7 +105,7 @@ export default function Navbar() {
 
         </div>
 
-        {/* Mobile Button */}
+        {/* Mobile Menu Button */}
         <button
           className="md:hidden text-white text-2xl"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -114,9 +114,9 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu - Now includes Admin */}
       {menuOpen && (
-        <div className="md:hidden flex flex-col px-6 pb-4 gap-3 bg-blue-900">
+        <div className="md:hidden flex flex-col px-6 pb-6 gap-3 bg-blue-900 border-t border-blue-800">
 
           {[
             ["/", "Home"],
@@ -127,13 +127,14 @@ export default function Navbar() {
             ["/announcements", "Announcements"],
             ["/support", "Support"],
             ["/contact", "Contact"],
+            ["/admin", "Admin"],           // ← Added here
           ].map(([path, label]) => (
             <NavLink
               key={path}
               to={path}
               onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
-                `text-sm py-1 ${isActive ? "text-yellow-400" : "text-white"}`
+                `text-sm py-2 px-4 rounded ${isActive ? "text-yellow-400 bg-blue-800" : "text-white hover:bg-blue-800"}`
               }
             >
               {label}

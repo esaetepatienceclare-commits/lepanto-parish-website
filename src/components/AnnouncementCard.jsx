@@ -39,6 +39,14 @@ export default function AnnouncementCard({ item }) {
         <p className="text-gray-700 leading-relaxed flex-1">
           {item.description}
         </p>
+
+        {/* Audio Player */}
+        {item.audioUrl && (
+          <div className="mt-5">
+            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">🎙 Listen</p>
+            <audio src={item.audioUrl} controls className="w-full" />
+          </div>
+        )}
       </div>
     </div>
   );
