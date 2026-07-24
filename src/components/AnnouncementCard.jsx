@@ -40,11 +40,33 @@ export default function AnnouncementCard({ item }) {
           {item.description}
         </p>
 
-        {/* Audio Player */}
+        {/* Audio Player + Download */}
         {item.audioUrl && (
-          <div className="mt-5">
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">🎙 Listen</p>
-            <audio src={item.audioUrl} controls className="w-full" />
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-blue-600 text-xl">🎙️</span>
+              <p className="text-sm font-semibold text-blue-700 uppercase tracking-wider">
+                Voice Announcement
+              </p>
+            </div>
+            
+            <audio 
+              src={item.audioUrl} 
+              controls 
+              className="w-full accent-blue-600 mb-3"
+              preload="metadata"
+            >
+              Your browser does not support the audio element.
+            </audio>
+
+            {/* Download Button */}
+            <a
+              href={item.audioUrl}
+              download
+              className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium border border-blue-200 hover:border-blue-300 px-4 py-2 rounded-xl transition"
+            >
+              ⬇️ Download Audio
+            </a>
           </div>
         )}
       </div>

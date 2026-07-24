@@ -10,8 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../firebase";
 
-// ---------- Cloudinary upload helpers ----------
-
+// Cloudinary Helpers
 const CLOUD_NAME = "dxcwgsjvk";
 const UPLOAD_PRESET = "Lepanto";
 
@@ -25,20 +24,15 @@ async function uploadToCloudinary(file, resourceType, filename) {
     { method: "POST", body: formData }
   );
 
-  if (!res.ok) {
-    throw new Error(`Cloudinary upload failed (${resourceType}): ${res.status}`);
-  }
-
+  if (!res.ok) throw new Error("Upload failed");
   const data = await res.json();
   return data.secure_url;
 }
 
 const uploadImage = (file) => uploadToCloudinary(file, "image");
-const uploadAudio = (blob, filename = "announcement.webm") =>
-  uploadToCloudinary(blob, "video", filename);
+const uploadAudio = (file) => uploadToCloudinary(file, "video", file.name || "audio.webm");
 
-// ---------- Audio recorder hook ----------
-
+// Audio Recorder Hook
 function useAudioRecorder() {
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -51,34 +45,25 @@ function useAudioRecorder() {
   const start = useCallback(async () => {
     setError("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 },
-      });
-
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-
-      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         setAudioBlob(blob);
         setAudioPreviewUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach((t) => t.stop());
+        stream.getTracks().forEach(t => t.stop());
       };
 
       recorder.start();
       setRecording(true);
     } catch {
-      setError("Microphone access denied. Please allow microphone access and try again.");
+      setError("Microphone access denied. Please allow access.");
     }
   }, []);
 
@@ -92,64 +77,32 @@ function useAudioRecorder() {
     setAudioPreviewUrl("");
   }, []);
 
-  const reset = useCallback(() => {
-    discard();
-    setRecording(false);
-    setError("");
-  }, [discard]);
-
-  useEffect(() => {
-    return () => {
-      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
-    };
-  }, [audioPreviewUrl]);
-
-  return { recording, audioBlob, audioPreviewUrl, error, start, stop, discard, reset };
+  return { recording, audioBlob, audioPreviewUrl, error, start, stop, discard };
 }
 
-// ---------- Form state reducer ----------
-
+// Form Reducer
 const initialFormState = {
-  title: "",
-  description: "",
-  publishDate: "",
-  expiryDate: "",
-  featured: false,
-  image: null,
-  editingId: null,
+  title: "", description: "", publishDate: "", expiryDate: "", featured: false,
+  image: null, audioFile: null, editingId: null,
 };
 
 function formReducer(state, action) {
   switch (action.type) {
-    case "SET_FIELD":
-      return { ...state, [action.field]: action.value };
-    case "LOAD_FOR_EDIT":
-      return {
-        ...initialFormState,
-        title: action.announcement.title || "",
-        description: action.announcement.description || "",
-        publishDate: action.announcement.publishDate?.toDate()?.toISOString().split("T")[0] || "",
-        expiryDate: action.announcement.expiryDate?.toDate()?.toISOString().split("T")[0] || "",
-        featured: action.announcement.featured || false,
-        editingId: action.announcement.id,
-      };
-    case "RESET":
-      return initialFormState;
-    default:
-      return state;
+    case "SET_FIELD": return { ...state, [action.field]: action.value };
+    case "LOAD_FOR_EDIT": return { ...initialFormState, ...action.payload, editingId: action.payload.id };
+    case "RESET": return initialFormState;
+    default: return state;
   }
 }
-
-// ---------- Main component ----------
 
 export default function AnnouncementManager() {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState("");
 
   const [formState, dispatch] = useReducer(formReducer, initialFormState);
   const fileRef = useRef(null);
+  const audioFileRef = useRef(null);
   const recorder = useAudioRecorder();
 
   const setField = (field, value) => dispatch({ type: "SET_FIELD", field, value });
@@ -157,212 +110,134 @@ export default function AnnouncementManager() {
   const fetchAnnouncements = async () => {
     try {
       const snap = await getDocs(collection(db, "announcements"));
-      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+      setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    fetchAnnouncements();
-  }, []);
+  useEffect(() => { fetchAnnouncements(); }, []);
 
   const resetForm = () => {
     dispatch({ type: "RESET" });
     if (fileRef.current) fileRef.current.value = "";
-    recorder.reset();
+    if (audioFileRef.current) audioFileRef.current.value = "";
+    recorder.discard();
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { title, description, publishDate, expiryDate, featured, image, editingId } = formState;
+    const { title, description, publishDate, expiryDate, featured, image, audioFile, editingId } = formState;
 
     if (!title || !description) return alert("Title and description are required");
 
     setUploading(true);
 
     try {
-      let imageUrl = "";
-      if (image) imageUrl = await uploadImage(image);
-
+      let imageUrl = image ? await uploadImage(image) : "";
       let audioUrl = "";
-      if (recorder.audioBlob) {
-        setUploadProgress("Uploading audio...");
+
+      if (audioFile) {
+        audioUrl = await uploadAudio(audioFile);
+      } else if (recorder.audioBlob) {
         audioUrl = await uploadAudio(recorder.audioBlob);
-        setUploadProgress("");
       }
 
       const data = {
-        title,
-        description,
+        title, description,
         publishDate: publishDate ? Timestamp.fromDate(new Date(publishDate)) : null,
         expiryDate: expiryDate ? Timestamp.fromDate(new Date(expiryDate)) : null,
         featured,
-        imageUrl: imageUrl || "",
-        audioUrl: audioUrl || "",
+        imageUrl,
+        audioUrl,
         updatedAt: Timestamp.now(),
       };
 
       if (editingId) {
         await updateDoc(doc(db, "announcements", editingId), data);
-        alert("Announcement updated successfully!");
       } else {
         await addDoc(collection(db, "announcements"), { ...data, createdAt: Timestamp.now() });
-        alert("Announcement added successfully!");
       }
 
+      alert(editingId ? "Updated!" : "Added!");
       resetForm();
-      await fetchAnnouncements();
+      fetchAnnouncements();
     } catch (err) {
       console.error(err);
-      alert("Failed to save announcement");
+      alert("Failed to save");
     } finally {
       setUploading(false);
-      setUploadProgress("");
     }
   };
 
   const startEdit = (ann) => {
-    dispatch({ type: "LOAD_FOR_EDIT", announcement: ann });
-    recorder.reset();
+    dispatch({ type: "LOAD_FOR_EDIT", payload: ann });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this announcement?")) return;
-    try {
-      await deleteDoc(doc(db, "announcements", id));
-      fetchAnnouncements();
-    } catch (err) {
-      alert("Failed to delete");
-    }
+    if (!confirm("Delete this announcement?")) return;
+    await deleteDoc(doc(db, "announcements", id));
+    fetchAnnouncements();
   };
 
   const { title, description, publishDate, expiryDate, featured, editingId } = formState;
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-blue-900">Announcements Manager</h2>
-        {editingId && (
-          <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700">
-            Cancel Editing
-          </button>
-        )}
-      </div>
+    <div className="max-w-6xl mx-auto p-6 space-y-10">
+      <h2 className="text-3xl font-bold text-blue-900">Announcement Manager</h2>
 
       {/* FORM */}
-      <div className="bg-white border border-gray-200 p-6 rounded-2xl shadow-sm">
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <input
-            type="text"
-            placeholder="Announcement Title"
-            value={title}
-            onChange={(e) => setField("title", e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"
-            required
-          />
+      <div className="bg-white border p-6 rounded-3xl shadow">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <input type="text" placeholder="Title" value={title} onChange={(e) => setField("title", e.target.value)} className="w-full p-4 border rounded-2xl" required />
+          <textarea placeholder="Description" value={description} onChange={(e) => setField("description", e.target.value)} className="w-full p-4 border rounded-2xl h-32" required />
 
-          <textarea
-            placeholder="Description"
-            value={description}
-            onChange={(e) => setField("description", e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-xl h-28 focus:outline-none focus:border-blue-500"
-            required
-          />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-gray-600 mb-1 block">Publish Date</label>
-              <input
-                type="date"
-                value={publishDate}
-                onChange={(e) => setField("publishDate", e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-gray-600 mb-1 block">Expiry Date</label>
-              <input
-                type="date"
-                value={expiryDate}
-                onChange={(e) => setField("expiryDate", e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl"
-              />
-            </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <input type="date" value={publishDate} onChange={(e) => setField("publishDate", e.target.value)} className="p-4 border rounded-2xl" />
+            <input type="date" value={expiryDate} onChange={(e) => setField("expiryDate", e.target.value)} className="p-4 border rounded-2xl" />
           </div>
 
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={featured}
-              onChange={(e) => setField("featured", e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span className="text-gray-700">Mark as Featured</span>
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={featured} onChange={(e) => setField("featured", e.target.checked)} />
+            Mark as Featured
           </label>
 
           <div>
-            <label className="text-sm text-gray-600 mb-1 block">Image (optional)</label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => setField("image", e.target.files[0])}
-              className="w-full p-3 border border-gray-300 rounded-xl"
-            />
+            <label className="block mb-1">Image (optional)</label>
+            <input ref={fileRef} type="file" accept="image/*" onChange={(e) => setField("image", e.target.files[0])} className="w-full p-4 border rounded-2xl" />
           </div>
 
-          {/* AUDIO RECORDING */}
-          <div className="border border-gray-200 rounded-xl p-5 bg-gray-50 space-y-4">
-            <p className="text-sm font-medium text-gray-700">Audio Announcement (optional)</p>
+          {/* Audio Section - Both Options */}
+          <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50">
+            <p className="font-medium mb-4">Audio Announcement (optional)</p>
 
-            {!recorder.audioBlob ? (
+            {/* Upload Pre-recorded */}
+            <div className="mb-6">
+              <label className="block text-sm text-gray-600 mb-2">1. Upload Pre-recorded File</label>
+              <input ref={audioFileRef} type="file" accept="audio/*" onChange={(e) => setField("audioFile", e.target.files[0])} className="w-full p-4 border rounded-2xl" />
+            </div>
+
+            {/* Live Recording */}
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">2. Or Record Live</label>
               <button
                 type="button"
                 onClick={recorder.recording ? recorder.stop : recorder.start}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-white transition ${
-                  recorder.recording
-                    ? "bg-red-600 hover:bg-red-700 animate-pulse"
-                    : "bg-blue-700 hover:bg-blue-800"
-                }`}
+                className={`px-6 py-3 rounded-2xl text-white font-medium ${recorder.recording ? "bg-red-600" : "bg-blue-700"}`}
               >
-                {recorder.recording ? "⏹ Stop Recording" : "🎙 Start Recording"}
+                {recorder.recording ? "Stop Recording" : "Start Recording"}
               </button>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-green-700 font-medium">✓ Recording ready — preview below</p>
-                <audio src={recorder.audioPreviewUrl} controls className="w-full" />
-                <button
-                  type="button"
-                  onClick={recorder.discard}
-                  className="text-sm text-red-500 hover:text-red-700 underline"
-                >
-                  Discard and re-record
-                </button>
-              </div>
-            )}
 
-            {recorder.recording && (
-              <p className="text-sm text-red-600 font-medium animate-pulse">🔴 Recording in progress...</p>
-            )}
-
-            {recorder.error && (
-              <p className="text-sm text-red-600 font-medium">{recorder.error}</p>
-            )}
+              {recorder.audioPreviewUrl && (
+                <div className="mt-4">
+                  <audio src={recorder.audioPreviewUrl} controls className="w-full" />
+                  <button type="button" onClick={recorder.discard} className="text-red-600 text-sm mt-2">Discard Recording</button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {uploadProgress && (
-            <p className="text-sm text-blue-600 font-medium animate-pulse">{uploadProgress}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={uploading}
-            className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white py-4 rounded-xl font-semibold transition"
-          >
+          <button type="submit" disabled={uploading} className="w-full bg-blue-700 text-white py-4 rounded-2xl font-semibold">
             {uploading ? "Saving..." : editingId ? "Update Announcement" : "Add Announcement"}
           </button>
         </form>
@@ -370,41 +245,22 @@ export default function AnnouncementManager() {
 
       {/* LIST */}
       <div>
-        <h3 className="font-semibold text-lg mb-4 text-gray-700">Existing Announcements ({announcements.length})</h3>
+        <h3 className="text-xl font-semibold mb-4">All Announcements ({announcements.length})</h3>
 
-        {loading ? (
-          <p className="text-gray-500">Loading announcements...</p>
-        ) : announcements.length === 0 ? (
-          <p className="text-gray-500">No announcements yet.</p>
+        {loading ? <p>Loading...</p> : announcements.length === 0 ? (
+          <p>No announcements yet.</p>
         ) : (
-          <div className="space-y-4">
-            {announcements.map((ann) => (
-              <div key={ann.id} className="bg-white border border-gray-200 p-5 rounded-2xl flex flex-col md:flex-row gap-5">
-                {ann.imageUrl && (
-                  <img src={ann.imageUrl} alt="" className="w-full md:w-48 h-40 object-cover rounded-xl" />
-                )}
-                <div className="flex-1">
-                  <h4 className="font-bold text-xl text-blue-900">{ann.title}</h4>
-                  <p className="text-gray-600 mt-1 line-clamp-3">{ann.description}</p>
+          <div className="space-y-6">
+            {announcements.map(ann => (
+              <div key={ann.id} className="bg-white border rounded-3xl p-6">
+                <h4 className="font-bold text-xl">{ann.title}</h4>
+                <p className="text-gray-600 mt-2">{ann.description}</p>
 
-                  {ann.audioUrl && (
-                    <audio src={ann.audioUrl} controls className="w-full mt-3" />
-                  )}
+                {ann.audioUrl && <audio src={ann.audioUrl} controls className="w-full mt-4" />}
 
-                  <div className="mt-4 flex gap-3">
-                    <button
-                      onClick={() => startEdit(ann)}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded-xl text-sm font-medium"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(ann.id)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-xl text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                <div className="mt-5 flex gap-3">
+                  <button onClick={() => startEdit(ann)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded-xl">Edit</button>
+                  <button onClick={() => handleDelete(ann.id)} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl">Delete</button>
                 </div>
               </div>
             ))}
