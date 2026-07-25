@@ -6,6 +6,7 @@ import {
   Image, 
   Calendar, 
   FileText, 
+  MessageCircle,
   LogOut 
 } from "lucide-react";
 
@@ -15,6 +16,7 @@ import AnnouncementManager from "../components/admin/AnnouncementManager";
 import GalleryManager from "../components/admin/GalleryManager";
 import EventRulesManager from "../components/admin/EventRulesManager";
 import EventsManager from "../components/admin/EventsManager";
+import DonorMessagesManager from "../components/admin/DonorMessagesManager"; // ← New
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -37,6 +39,7 @@ export default function Admin() {
     { key: "gallery", label: "Gallery", icon: Image },
     { key: "events", label: "Events", icon: Calendar },
     { key: "eventRules", label: "Event Rules", icon: FileText },
+    { key: "donorMessages", label: "Donor Messages", icon: MessageCircle }, // ← New
   ];
 
   return (
@@ -86,6 +89,7 @@ export default function Admin() {
         {tab === "gallery" && <GalleryManager />}
         {tab === "events" && <EventsManager />}
         {tab === "eventRules" && <EventRulesManager />}
+        {tab === "donorMessages" && <DonorMessagesManager />} {/* ← New */}
       </div>
     </div>
   );

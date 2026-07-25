@@ -30,42 +30,79 @@ async function uploadToCloudinary(file, resourceType, filename) {
 }
 
 const uploadImage = (file) => uploadToCloudinary(file, "image");
-const uploadAudio = (file) => uploadToCloudinary(file, "video", file.name || "audio.webm");
+const uploadMedia = (file) => uploadToCloudinary(file, "video", file.name || "media.webm");
 
-// Audio Recorder Hook
-function useAudioRecorder() {
+// ---------- Media Recorder Hook (Audio + Video) ----------
+function useMediaRecorder(type = "audio") {
   const [recording, setRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
-  const [error, setError] = useState("");
-
+  const [mediaBlob, setMediaBlob] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [stream, setStream] = useState(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
   const start = useCallback(async () => {
-    setError("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const constraints =
+        type === "video"
+          ? {
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+              video: true,
+            }
+          : {
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+              },
+            };
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setStream(mediaStream);
       chunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      let mimeType;
+      if (type === "video") {
+        mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+          ? "video/webm;codecs=vp9,opus"
+          : "video/webm";
+      } else {
+        mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+      }
+
+      const recorder = new MediaRecorder(mediaStream, {
+        mimeType,
+        audioBitsPerSecond: 128000,
+      });
+
       mediaRecorderRef.current = recorder;
 
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        setAudioBlob(blob);
-        setAudioPreviewUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach(t => t.stop());
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      recorder.start();
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        setMediaBlob(blob);
+        setPreviewUrl(URL.createObjectURL(blob));
+        mediaStream.getTracks().forEach((t) => t.stop());
+        setStream(null);
+      };
+
+      recorder.start(1000);
       setRecording(true);
-    } catch {
-      setError("Microphone access denied. Please allow access.");
+    } catch (err) {
+      console.error(err);
+      alert(`Could not access ${type}. Please allow permission.`);
     }
-  }, []);
+  }, [type]);
 
   const stop = useCallback(() => {
     mediaRecorderRef.current?.stop();
@@ -73,25 +110,46 @@ function useAudioRecorder() {
   }, []);
 
   const discard = useCallback(() => {
-    setAudioBlob(null);
-    setAudioPreviewUrl("");
+    setMediaBlob(null);
+    setPreviewUrl("");
   }, []);
 
-  return { recording, audioBlob, audioPreviewUrl, error, start, stop, discard };
+  return { recording, mediaBlob, previewUrl, stream, start, stop, discard };
 }
 
 // Form Reducer
 const initialFormState = {
-  title: "", description: "", publishDate: "", expiryDate: "", featured: false,
-  image: null, audioFile: null, editingId: null,
+  title: "",
+  description: "",
+  publishDate: "",
+  expiryDate: "",
+  featured: false,
+  image: null,
+  audioFile: null,
+  videoFile: null,
+  editingId: null,
 };
 
 function formReducer(state, action) {
   switch (action.type) {
-    case "SET_FIELD": return { ...state, [action.field]: action.value };
-    case "LOAD_FOR_EDIT": return { ...initialFormState, ...action.payload, editingId: action.payload.id };
-    case "RESET": return initialFormState;
-    default: return state;
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value };
+    case "LOAD_FOR_EDIT":
+      return {
+        title: action.payload.title || "",
+        description: action.payload.description || "",
+        publishDate: action.payload.publishDate?.toDate()?.toISOString().split("T")[0] || "",
+        expiryDate: action.payload.expiryDate?.toDate()?.toISOString().split("T")[0] || "",
+        featured: action.payload.featured || false,
+        image: null,
+        audioFile: null,
+        videoFile: null,
+        editingId: action.payload.id,
+      };
+    case "RESET":
+      return initialFormState;
+    default:
+      return state;
   }
 }
 
@@ -103,30 +161,40 @@ export default function AnnouncementManager() {
   const [formState, dispatch] = useReducer(formReducer, initialFormState);
   const fileRef = useRef(null);
   const audioFileRef = useRef(null);
-  const recorder = useAudioRecorder();
+  const videoFileRef = useRef(null);
+
+  const audioRecorder = useMediaRecorder("audio");
+  const videoRecorder = useMediaRecorder("video");
 
   const setField = (field, value) => dispatch({ type: "SET_FIELD", field, value });
 
   const fetchAnnouncements = async () => {
     try {
       const snap = await getDocs(collection(db, "announcements"));
-      setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchAnnouncements(); }, []);
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
 
   const resetForm = () => {
     dispatch({ type: "RESET" });
     if (fileRef.current) fileRef.current.value = "";
     if (audioFileRef.current) audioFileRef.current.value = "";
-    recorder.discard();
+    if (videoFileRef.current) videoFileRef.current.value = "";
+    audioRecorder.discard();
+    videoRecorder.discard();
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { title, description, publishDate, expiryDate, featured, image, audioFile, editingId } = formState;
+    const { title, description, publishDate, expiryDate, featured, image, audioFile, videoFile, editingId } = formState;
 
     if (!title || !description) return alert("Title and description are required");
 
@@ -135,30 +203,45 @@ export default function AnnouncementManager() {
     try {
       let imageUrl = image ? await uploadImage(image) : "";
       let audioUrl = "";
+      let videoUrl = "";
 
+      // Audio
       if (audioFile) {
-        audioUrl = await uploadAudio(audioFile);
-      } else if (recorder.audioBlob) {
-        audioUrl = await uploadAudio(recorder.audioBlob);
+        audioUrl = await uploadMedia(audioFile);
+      } else if (audioRecorder.mediaBlob) {
+        audioUrl = await uploadMedia(audioRecorder.mediaBlob);
+      }
+
+      // Video
+      if (videoFile) {
+        videoUrl = await uploadMedia(videoFile);
+      } else if (videoRecorder.mediaBlob) {
+        videoUrl = await uploadMedia(videoRecorder.mediaBlob);
       }
 
       const data = {
-        title, description,
+        title,
+        description,
         publishDate: publishDate ? Timestamp.fromDate(new Date(publishDate)) : null,
         expiryDate: expiryDate ? Timestamp.fromDate(new Date(expiryDate)) : null,
         featured,
         imageUrl,
         audioUrl,
+        videoUrl,
         updatedAt: Timestamp.now(),
       };
 
       if (editingId) {
         await updateDoc(doc(db, "announcements", editingId), data);
+        alert("Announcement updated successfully!");
       } else {
-        await addDoc(collection(db, "announcements"), { ...data, createdAt: Timestamp.now() });
+        await addDoc(collection(db, "announcements"), {
+          ...data,
+          createdAt: Timestamp.now(),
+        });
+        alert("Announcement added successfully!");
       }
 
-      alert(editingId ? "Updated!" : "Added!");
       resetForm();
       fetchAnnouncements();
     } catch (err) {
@@ -189,55 +272,170 @@ export default function AnnouncementManager() {
       {/* FORM */}
       <div className="bg-white border p-6 rounded-3xl shadow">
         <form onSubmit={handleSubmit} className="space-y-6">
-          <input type="text" placeholder="Title" value={title} onChange={(e) => setField("title", e.target.value)} className="w-full p-4 border rounded-2xl" required />
-          <textarea placeholder="Description" value={description} onChange={(e) => setField("description", e.target.value)} className="w-full p-4 border rounded-2xl h-32" required />
+          <input
+            type="text"
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setField("title", e.target.value)}
+            className="w-full p-4 border rounded-2xl"
+            required
+          />
+          <textarea
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setField("description", e.target.value)}
+            className="w-full p-4 border rounded-2xl h-32"
+            required
+          />
 
           <div className="grid md:grid-cols-2 gap-4">
-            <input type="date" value={publishDate} onChange={(e) => setField("publishDate", e.target.value)} className="p-4 border rounded-2xl" />
-            <input type="date" value={expiryDate} onChange={(e) => setField("expiryDate", e.target.value)} className="p-4 border rounded-2xl" />
+            <input
+              type="date"
+              value={publishDate}
+              onChange={(e) => setField("publishDate", e.target.value)}
+              className="p-4 border rounded-2xl"
+            />
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setField("expiryDate", e.target.value)}
+              className="p-4 border rounded-2xl"
+            />
           </div>
 
           <label className="flex items-center gap-3">
-            <input type="checkbox" checked={featured} onChange={(e) => setField("featured", e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={featured}
+              onChange={(e) => setField("featured", e.target.checked)}
+            />
             Mark as Featured
           </label>
 
+          {/* Image */}
           <div>
             <label className="block mb-1">Image (optional)</label>
-            <input ref={fileRef} type="file" accept="image/*" onChange={(e) => setField("image", e.target.files[0])} className="w-full p-4 border rounded-2xl" />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => setField("image", e.target.files[0])}
+              className="w-full p-4 border rounded-2xl"
+            />
           </div>
 
-          {/* Audio Section - Both Options */}
+          {/* AUDIO SECTION */}
           <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50">
-            <p className="font-medium mb-4">Audio Announcement (optional)</p>
+            <p className="font-medium text-gray-700 mb-4">🎙️ Audio Announcement</p>
 
-            {/* Upload Pre-recorded */}
-            <div className="mb-6">
-              <label className="block text-sm text-gray-600 mb-2">1. Upload Pre-recorded File</label>
-              <input ref={audioFileRef} type="file" accept="audio/*" onChange={(e) => setField("audioFile", e.target.files[0])} className="w-full p-4 border rounded-2xl" />
+            <div className="mb-4">
+              <label className="block text-sm text-gray-600 mb-2">Upload Audio File</label>
+              <input
+                ref={audioFileRef}
+                type="file"
+                accept="audio/*"
+                onChange={(e) => setField("audioFile", e.target.files[0])}
+                className="w-full p-3 border rounded-xl"
+              />
             </div>
 
-            {/* Live Recording */}
             <div>
-              <label className="block text-sm text-gray-600 mb-2">2. Or Record Live</label>
+              <label className="block text-sm text-gray-600 mb-2">Or Record Audio</label>
               <button
                 type="button"
-                onClick={recorder.recording ? recorder.stop : recorder.start}
-                className={`px-6 py-3 rounded-2xl text-white font-medium ${recorder.recording ? "bg-red-600" : "bg-blue-700"}`}
+                onClick={audioRecorder.recording ? audioRecorder.stop : audioRecorder.start}
+                className={`px-6 py-3 rounded-xl text-white font-medium ${
+                  audioRecorder.recording ? "bg-red-600" : "bg-blue-700"
+                }`}
               >
-                {recorder.recording ? "Stop Recording" : "Start Recording"}
+                {audioRecorder.recording ? "Stop Recording" : "Start Recording"}
               </button>
 
-              {recorder.audioPreviewUrl && (
+              {audioRecorder.previewUrl && (
                 <div className="mt-4">
-                  <audio src={recorder.audioPreviewUrl} controls className="w-full" />
-                  <button type="button" onClick={recorder.discard} className="text-red-600 text-sm mt-2">Discard Recording</button>
+                  <audio src={audioRecorder.previewUrl} controls className="w-full" />
+                  <button
+                    type="button"
+                    onClick={audioRecorder.discard}
+                    className="text-red-600 text-sm mt-2"
+                  >
+                    Discard
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
-          <button type="submit" disabled={uploading} className="w-full bg-blue-700 text-white py-4 rounded-2xl font-semibold">
+          {/* VIDEO SECTION */}
+          <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50">
+            <p className="font-medium text-gray-700 mb-4">🎥 Video Announcement</p>
+
+            <div className="mb-4">
+              <label className="block text-sm text-gray-600 mb-2">Upload Video File</label>
+              <input
+                ref={videoFileRef}
+                type="file"
+                accept="video/*"
+                onChange={(e) => setField("videoFile", e.target.files[0])}
+                className="w-full p-3 border rounded-xl"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">Or Record Video</label>
+              <button
+                type="button"
+                onClick={videoRecorder.recording ? videoRecorder.stop : videoRecorder.start}
+                className={`px-6 py-3 rounded-xl text-white font-medium mb-4 ${
+                  videoRecorder.recording ? "bg-red-600" : "bg-blue-700"
+                }`}
+              >
+                {videoRecorder.recording ? "Stop Recording" : "Start Recording"}
+              </button>
+
+              {/* Live Preview */}
+              {videoRecorder.recording && videoRecorder.stream && (
+                <div className="mb-4">
+                  <p className="text-sm text-red-600 mb-2 animate-pulse">🔴 Recording...</p>
+                  <video
+                    ref={(videoEl) => {
+                      if (videoEl && videoRecorder.stream) {
+                        videoEl.srcObject = videoRecorder.stream;
+                      }
+                    }}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full rounded-xl bg-black"
+                  />
+                </div>
+              )}
+
+              {/* After recording */}
+              {videoRecorder.previewUrl && !videoRecorder.recording && (
+                <div className="mt-4">
+                  <video
+                    src={videoRecorder.previewUrl}
+                    controls
+                    className="w-full rounded-xl"
+                  />
+                  <button
+                    type="button"
+                    onClick={videoRecorder.discard}
+                    className="text-red-600 text-sm mt-2"
+                  >
+                    Discard
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={uploading}
+            className="w-full bg-blue-700 text-white py-4 rounded-2xl font-semibold"
+          >
             {uploading ? "Saving..." : editingId ? "Update Announcement" : "Add Announcement"}
           </button>
         </form>
@@ -245,22 +443,46 @@ export default function AnnouncementManager() {
 
       {/* LIST */}
       <div>
-        <h3 className="text-xl font-semibold mb-4">All Announcements ({announcements.length})</h3>
+        <h3 className="text-xl font-semibold mb-4">
+          Existing Announcements ({announcements.length})
+        </h3>
 
-        {loading ? <p>Loading...</p> : announcements.length === 0 ? (
+        {loading ? (
+          <p>Loading...</p>
+        ) : announcements.length === 0 ? (
           <p>No announcements yet.</p>
         ) : (
           <div className="space-y-6">
-            {announcements.map(ann => (
+            {announcements.map((ann) => (
               <div key={ann.id} className="bg-white border rounded-3xl p-6">
-                <h4 className="font-bold text-xl">{ann.title}</h4>
-                <p className="text-gray-600 mt-2">{ann.description}</p>
+                <h4 className="font-bold text-xl text-blue-900">{ann.title}</h4>
+                <p className="text-gray-600 mt-1">{ann.description}</p>
 
-                {ann.audioUrl && <audio src={ann.audioUrl} controls className="w-full mt-4" />}
+                {ann.audioUrl && (
+                  <audio src={ann.audioUrl} controls className="w-full mt-4" />
+                )}
 
-                <div className="mt-5 flex gap-3">
-                  <button onClick={() => startEdit(ann)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded-xl">Edit</button>
-                  <button onClick={() => handleDelete(ann.id)} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl">Delete</button>
+                {ann.videoUrl && (
+                  <video
+                    src={ann.videoUrl}
+                    controls
+                    className="w-full max-w-md rounded-xl mt-4"
+                  />
+                )}
+
+                <div className="flex gap-3 mt-5">
+                  <button
+                    onClick={() => startEdit(ann)}
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded-xl"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(ann.id)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
