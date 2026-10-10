@@ -1,6 +1,15 @@
-import { useState, useRef, useCallback } from "react";
-import { collection, addDoc, Timestamp } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { collection, addDoc, onSnapshot, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
+import useMediaRecorder from "../hooks/useMediaRecorder";
+import {
+  CAUSE_COLORS,
+  defaultCauses,
+  formatUGX,
+  paymentOptions,
+  visibleCauses,
+} from "../data/supportCauses";
 
 // Cloudinary
 const CLOUD_NAME = "dxcwgsjvk";
@@ -21,93 +30,58 @@ async function uploadToCloudinary(file, resourceType) {
   return data.secure_url;
 }
 
-// ---------- Media Recorder Hook ----------
-function useMediaRecorder(type = "audio") {
-  const [recording, setRecording] = useState(false);
-  const [mediaBlob, setMediaBlob] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [stream, setStream] = useState(null);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
+// One card on the Support page.
+function CauseCard({ cause, onSelect }) {
+  const color = CAUSE_COLORS[cause.color] || CAUSE_COLORS.blue;
+  const percent = cause.goal > 0 ? Math.min(100, Math.round(((cause.raised || 0) / cause.goal) * 100)) : null;
 
-  const start = useCallback(async () => {
-    try {
-      const constraints =
-        type === "video"
-          ? {
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-              },
-              video: true,
-            }
-          : {
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 48000,
-              },
-            };
+  return (
+    <div
+      onClick={() => onSelect(cause.id)}
+      className={`group bg-white border border-gray-200 rounded-3xl overflow-hidden ${color.hoverBorder} hover:shadow-xl transition-all cursor-pointer flex flex-col`}
+    >
+      {cause.imageUrl && (
+        <img src={cause.imageUrl} alt={cause.title} className="w-full h-44 object-cover" />
+      )}
+      <div className="p-8 flex flex-col flex-1">
+        {!cause.imageUrl && (
+          <div className={`w-14 h-14 ${color.iconBg} rounded-2xl flex items-center justify-center mb-6 transition`}>
+            <span className="text-3xl">{cause.emoji || "💛"}</span>
+          </div>
+        )}
+        <h3 className="text-2xl font-bold text-blue-900 mb-3">{cause.title}</h3>
+        <p className="text-gray-600 leading-relaxed">{cause.description}</p>
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
-      chunksRef.current = [];
+        {percent !== null && (
+          <div className="mt-6">
+            <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full ${color.bar} rounded-full`} style={{ width: `${percent}%` }} />
+            </div>
+            <p className="text-sm text-gray-600 mt-2">
+              <span className="font-semibold text-blue-900">{formatUGX(cause.raised)}</span> raised of{" "}
+              {formatUGX(cause.goal)} ({percent}%)
+            </p>
+          </div>
+        )}
 
-      let mimeType;
-      if (type === "video") {
-        mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-          ? "video/webm;codecs=vp9,opus"
-          : "video/webm";
-      } else {
-        mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-      }
-
-      const recorder = new MediaRecorder(mediaStream, {
-        mimeType,
-        audioBitsPerSecond: 128000,
-      });
-
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        setMediaBlob(blob);
-        setPreviewUrl(URL.createObjectURL(blob));
-        mediaStream.getTracks().forEach((t) => t.stop());
-        setStream(null);
-      };
-
-      recorder.start(1000);
-      setRecording(true);
-    } catch (err) {
-      console.error(err);
-      alert(`Could not access ${type}. Please allow permission.`);
-    }
-  }, [type]);
-
-  const stop = useCallback(() => {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
-  }, []);
-
-  const discard = useCallback(() => {
-    setMediaBlob(null);
-    setPreviewUrl("");
-  }, []);
-
-  return { recording, mediaBlob, previewUrl, stream, start, stop, discard };
+        <div className="mt-auto pt-8">
+          <span
+            className={`inline-block ${color.button} text-white px-6 py-3 rounded-2xl text-sm font-medium transition`}
+          >
+            {cause.buttonLabel || "Give Now"} →
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Support() {
-  const [selectedCause, setSelectedCause] = useState(null);
+  const [params] = useSearchParams();
+  // Causes come from Admin → Support Causes; until some are added, the original three are shown.
+  const [savedCauses, setSavedCauses] = useState(null);
+  const [selectedId, setSelectedId] = useState(params.get("cause"));
+  const paymentRef = useRef(null);
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [audioFile, setAudioFile] = useState(null);
@@ -121,23 +95,30 @@ export default function Support() {
   const audioFileRef = useRef(null);
   const videoFileRef = useRef(null);
 
-  const paymentDetails = {
-    "Support a Child": {
-      bank: "Centenary Bank",
-      accountName: "Holy Rosary Nursery and Primary School",
-      accountNumber: "3205108991",
-    },
-    "Support School Construction": {
-      bank: "Centenary Bank",
-      accountName: "Our Lady of the Most Holy Rosary Catholic Parish",
-      accountNumber: "3204733369",
-    },
-    "Building Fund": {
-      bank: "Centenary Bank",
-      accountName: "Our Lady of the Most Holy Rosary Catholic Parish",
-      accountNumber: "3203010627",
-    },
-  };
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "supportCauses"),
+      (snap) => setSavedCauses(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => {
+        console.error("Causes error:", err);
+        setSavedCauses([]);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const causes = visibleCauses(savedCauses && savedCauses.length > 0 ? savedCauses : defaultCauses);
+  const ongoing = causes.filter((c) => c.kind !== "project");
+  const projects = causes.filter((c) => c.kind === "project");
+  const selectedCause = causes.find((c) => c.id === selectedId) || null;
+  const pay = selectedCause ? paymentOptions(selectedCause) : null;
+  const payCount = pay ? [pay.bank, pay.mobile, pay.cash].filter(Boolean).length : 0;
+
+  // Bring the bank details into view when a cause is picked (also when arriving from the home page).
+  const shownId = selectedCause?.id;
+  useEffect(() => {
+    if (shownId) paymentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [shownId]);
 
   const handleSubmitMessage = async (e) => {
     e.preventDefault();
@@ -175,7 +156,7 @@ export default function Support() {
         message,
         audioUrl,
         videoUrl,
-        cause: selectedCause || "General",
+        cause: selectedCause?.title || "General",
         createdAt: Timestamp.now(),
       });
 
@@ -210,118 +191,97 @@ export default function Support() {
         </div>
 
         {/* Cause Cards */}
-        <div className="grid md:grid-cols-3 gap-8 mb-16">
-          <div
-            onClick={() => setSelectedCause("Support a Child")}
-            className="group bg-white border border-gray-200 rounded-3xl p-8 hover:border-emerald-300 hover:shadow-xl transition-all cursor-pointer"
-          >
-            <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-200 transition">
-              <span className="text-3xl">👶</span>
-            </div>
-            <h3 className="text-2xl font-bold text-blue-900 mb-3">Support a Child</h3>
-            <p className="text-gray-600 leading-relaxed">
-              Help sponsor a child’s education, meals, and spiritual growth in our parish school.
-            </p>
-            <div className="mt-8">
-              <span className="inline-block bg-emerald-600 text-white px-6 py-3 rounded-2xl text-sm font-medium group-hover:bg-emerald-700 transition">
-                Sponsor a Child →
-              </span>
-            </div>
-          </div>
+        {savedCauses === null ? (
+          <p className="text-center text-gray-500 mb-16">Loading causes...</p>
+        ) : (
+          <>
+            {ongoing.length > 0 && (
+              <div className="grid md:grid-cols-3 gap-8 mb-16">
+                {ongoing.map((cause) => (
+                  <CauseCard key={cause.id} cause={cause} onSelect={setSelectedId} />
+                ))}
+              </div>
+            )}
 
-          <div
-            onClick={() => setSelectedCause("Support School Construction")}
-            className="group bg-white border border-gray-200 rounded-3xl p-8 hover:border-amber-300 hover:shadow-xl transition-all cursor-pointer"
-          >
-            <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-amber-200 transition">
-              <span className="text-3xl">🏫</span>
-            </div>
-            <h3 className="text-2xl font-bold text-blue-900 mb-3">Support School Construction</h3>
-            <p className="text-gray-600 leading-relaxed">
-              Contribute towards building and equipping our parish school for the children of Lepanto.
-            </p>
-            <div className="mt-8">
-              <span className="inline-block bg-amber-600 text-white px-6 py-3 rounded-2xl text-sm font-medium group-hover:bg-amber-700 transition">
-                Support the Project →
-              </span>
-            </div>
-          </div>
-
-          <div
-            onClick={() => setSelectedCause("Building Fund")}
-            className="group bg-white border border-gray-200 rounded-3xl p-8 hover:border-blue-300 hover:shadow-xl transition-all cursor-pointer"
-          >
-            <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-blue-200 transition">
-              <span className="text-3xl">⛪</span>
-            </div>
-            <h3 className="text-2xl font-bold text-blue-900 mb-3">Building Fund</h3>
-            <p className="text-gray-600 leading-relaxed">
-              Support parish construction, renovation, and maintenance projects.
-            </p>
-            <div className="mt-8">
-              <span className="inline-block bg-blue-700 text-white px-6 py-3 rounded-2xl text-sm font-medium group-hover:bg-blue-800 transition">
-                Contribute to the Fund →
-              </span>
-            </div>
-          </div>
-        </div>
+            {projects.length > 0 && (
+              <div className="mb-16">
+                <h2 className="text-3xl font-bold text-blue-900 mb-2 text-center">Parish Projects</h2>
+                <p className="text-gray-500 text-center mb-8">See how far each project has come and help us finish it.</p>
+                <div className="grid md:grid-cols-3 gap-8">
+                  {projects.map((cause) => (
+                    <CauseCard key={cause.id} cause={cause} onSelect={setSelectedId} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Payment Details */}
         {selectedCause && (
-          <div className="max-w-4xl mx-auto mb-16">
+          <div ref={paymentRef} className="max-w-4xl mx-auto mb-16 scroll-mt-28">
             <div className="bg-white border border-gray-200 rounded-3xl p-10 shadow-sm">
               <div className="text-center mb-10">
-                <h2 className="text-3xl font-bold text-blue-900 mb-2">{selectedCause}</h2>
+                <h2 className="text-3xl font-bold text-blue-900 mb-2">{selectedCause.title}</h2>
                 <p className="text-gray-500">Choose your preferred way to give</p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl">
-                  <div className="text-4xl mb-4">🏦</div>
-                  <h4 className="font-semibold text-lg mb-4 text-slate-700">Bank Transfer</h4>
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <span className="text-gray-500">Bank:</span><br />
-                      <span className="font-semibold text-slate-800">{paymentDetails[selectedCause].bank}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Account Name:</span><br />
-                      <span className="font-semibold text-slate-800">{paymentDetails[selectedCause].accountName}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Account Number:</span><br />
-                      <span className="font-bold text-2xl text-blue-900 tracking-wider">
-                        {paymentDetails[selectedCause].accountNumber}
-                      </span>
+              <div
+                className={`grid gap-6 ${
+                  payCount === 3 ? "md:grid-cols-3" : payCount === 2 ? "md:grid-cols-2" : "max-w-md mx-auto"
+                }`}
+              >
+                {pay.bank && (
+                  <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl">
+                    <div className="text-4xl mb-4">🏦</div>
+                    <h4 className="font-semibold text-lg mb-4 text-slate-700">Bank Transfer</h4>
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <span className="text-gray-500">Bank:</span><br />
+                        <span className="font-semibold text-slate-800">{pay.bankName}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Account Name:</span><br />
+                        <span className="font-semibold text-slate-800">{pay.accountName}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Account Number:</span><br />
+                        <span className="font-bold text-2xl text-blue-900 tracking-wider">{pay.accountNumber}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl">
-                  <div className="text-4xl mb-4">📱</div>
-                  <h4 className="font-semibold text-lg mb-4 text-emerald-700">Mobile Money</h4>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">MTN / Airtel</p>
-                    <p className="font-bold text-2xl text-emerald-800">+256 772 473 247</p>
-                    <p className="text-xs text-gray-500 mt-3">Send transaction reference after payment.</p>
+                {pay.mobile && (
+                  <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl">
+                    <div className="text-4xl mb-4">📱</div>
+                    <h4 className="font-semibold text-lg mb-4 text-emerald-700">Mobile Money</h4>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">{pay.mobileNetwork}</p>
+                      <p className="font-bold text-2xl text-emerald-800">{pay.mobileNumber}</p>
+                      {pay.mobileName && (
+                        <p className="text-sm text-gray-700 mt-2">
+                          Name: <span className="font-semibold">{pay.mobileName}</span>
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-3">Send transaction reference after payment.</p>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl">
-                  <div className="text-4xl mb-4">💵</div>
-                  <h4 className="font-semibold text-lg mb-4 text-amber-700">Cash or Cheque</h4>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    Pay cash or issue a cheque to:
-                  </p>
-                  <p className="font-semibold text-amber-800 mt-3">
-                    Our Lady of the Most Holy Rosary Catholic Parish
-                  </p>
-                </div>
+                {pay.cash && (
+                  <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl">
+                    <div className="text-4xl mb-4">💵</div>
+                    <h4 className="font-semibold text-lg mb-4 text-amber-700">Cash or Cheque</h4>
+                    <p className="text-gray-600 text-sm leading-relaxed">Pay cash or issue a cheque to:</p>
+                    <p className="font-semibold text-amber-800 mt-3">{pay.chequePayee}</p>
+                  </div>
+                )}
               </div>
 
               <div className="text-center mt-8">
                 <button
-                  onClick={() => setSelectedCause(null)}
+                  onClick={() => setSelectedId(null)}
                   className="text-gray-500 hover:text-gray-700 text-sm underline"
                 >
                   Close

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
+import SiteSearch from "./SiteSearch";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -103,15 +104,20 @@ export default function Navbar() {
             Admin
           </NavLink>
 
+          <SiteSearch />
+
         </div>
 
-        {/* Mobile Menu Button */}
-        <button
-          className="md:hidden text-white text-2xl"
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          ☰
-        </button>
+        {/* Mobile: search + menu button */}
+        <div className="md:hidden flex items-center gap-4">
+          <SiteSearch onNavigate={() => setMenuOpen(false)} />
+          <button
+            className="text-white text-2xl"
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            ☰
+          </button>
+        </div>
       </div>
 
       {/* Mobile Menu - Now includes Admin */}

@@ -7,7 +7,10 @@ import {
   Calendar, 
   FileText, 
   MessageCircle,
-  LogOut 
+  LogOut,
+   GraduationCap,
+   BookOpen ,
+   Heart
 } from "lucide-react";
 
 import { auth } from "../firebase";
@@ -17,6 +20,19 @@ import GalleryManager from "../components/admin/GalleryManager";
 import EventRulesManager from "../components/admin/EventRulesManager";
 import EventsManager from "../components/admin/EventsManager";
 import DonorMessagesManager from "../components/admin/DonorMessagesManager"; // ← New
+
+import HomiliesManager from "../components/admin/HomiliesManager";
+
+
+import QuestionOfTheWeekManager from "../components/admin/QuestionOfTheWeekManager";
+import { HelpCircle } from "lucide-react";
+
+import AboutFatherManager from "../components/admin/AboutFatherManager";
+import { User } from "lucide-react";
+
+import RciaLessonsManager from "../components/admin/RciaLessonsManager";
+import FaithFormationManager from "../components/admin/FaithFormationManager";
+import SupportCausesManager from "../components/admin/SupportCausesManager";
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -39,7 +55,13 @@ export default function Admin() {
     { key: "gallery", label: "Gallery", icon: Image },
     { key: "events", label: "Events", icon: Calendar },
     { key: "eventRules", label: "Event Rules", icon: FileText },
-    { key: "donorMessages", label: "Donor Messages", icon: MessageCircle }, // ← New
+    { key: "donorMessages", label: "Donor Messages", icon: MessageCircle },
+    { key: "homilies", label: "Homilies", icon: BookOpen }, // ← New
+    { key: "question", label: "Question of the Week", icon: HelpCircle },
+    { key: "aboutFather", label: "About Father", icon: User },
+    { key: "rciaLessons", label: "RCIA Lessons", icon: BookOpen },
+    { key: "faithFormation", label: "Faith Formation", icon: GraduationCap },
+    { key: "supportCauses", label: "Support Causes", icon: Heart },
   ];
 
   return (
@@ -90,6 +112,12 @@ export default function Admin() {
         {tab === "events" && <EventsManager />}
         {tab === "eventRules" && <EventRulesManager />}
         {tab === "donorMessages" && <DonorMessagesManager />} {/* ← New */}
+        {tab === "homilies" && <HomiliesManager />}
+        {tab === "question" && <QuestionOfTheWeekManager />}
+        {tab === "aboutFather" && <AboutFatherManager />}
+        {tab === "rciaLessons" && <RciaLessonsManager />}
+        {tab === "faithFormation" && <FaithFormationManager />}
+        {tab === "supportCauses" && <SupportCausesManager />}
       </div>
     </div>
   );

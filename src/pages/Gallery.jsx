@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
+import PageSearch from "../components/PageSearch";
+import usePageSearch, { matchesSearch } from "../hooks/usePageSearch";
 
 export default function Gallery() {
   const [gallery, setGallery] = useState([]);
@@ -8,6 +10,7 @@ export default function Gallery() {
   const [selectedUploadedVideo, setSelectedUploadedVideo] = useState(null);
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [activeTab, setActiveTab] = useState("images");
+  const [searchTerm, setSearchTerm] = usePageSearch();
 
   useEffect(() => {
     const q = query(collection(db, "gallery"), orderBy("createdAt", "desc"));
@@ -52,12 +55,17 @@ export default function Gallery() {
     }
   };
 
+  // Only items matching the search box (all items when it is empty)
+  const visible = gallery.filter((item) =>
+    matchesSearch(searchTerm, item.title, item.description)
+  );
+
   // Group items
   const sections = {
     images: {
       title: "Images",
       subtitle: "Captured moments of faith and community",
-      items: gallery.filter(
+      items: visible.filter(
         (item) =>
           item.mediaType === "image" ||
           (item.mediaUrl && item.mediaUrl.match(/\.(jpeg|jpg|gif|png)$/i))
@@ -66,24 +74,24 @@ export default function Gallery() {
     videos: {
       title: "Videos",
       subtitle: "Watch parish events and activities",
-      items: gallery.filter((item) => item.mediaType === "video"),
+      items: visible.filter((item) => item.mediaType === "video"),
     },
     documents: {
       title: "Documents",
       subtitle: "Downloadable files and resources",
-      items: gallery.filter((item) => item.mediaType === "document"),
+      items: visible.filter((item) => item.mediaType === "document"),
     },
     youtube: {
       title: "YouTube Videos",
       subtitle: "Watch our YouTube content",
-      items: gallery.filter(
+      items: visible.filter(
         (item) => item.mediaType === "youtube" || isYouTubeUrl(item.mediaUrl)
       ),
     },
     links: {
       title: "External Links",
       subtitle: "Useful websites and resources",
-      items: gallery.filter((item) => item.mediaType === "link"),
+      items: visible.filter((item) => item.mediaType === "link"),
     },
   };
 
@@ -104,6 +112,8 @@ export default function Gallery() {
             the Most Holy Rosary, Lepanto.
           </p>
         </div>
+
+        <PageSearch value={searchTerm} onChange={setSearchTerm} placeholder="Search the gallery..." />
 
         {/* Tabs */}
         <div className="flex flex-wrap justify-center gap-3 mb-10">
@@ -139,7 +149,9 @@ export default function Gallery() {
         {currentSection.items.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
             <p className="text-gray-500 text-lg">
-              No {currentSection.title.toLowerCase()} available yet.
+              {searchTerm
+                ? `No ${currentSection.title.toLowerCase()} match your search.`
+                : `No ${currentSection.title.toLowerCase()} available yet.`}
             </p>
           </div>
         ) : (

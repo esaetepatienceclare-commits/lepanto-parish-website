@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { FaXTwitter } from "react-icons/fa6";
 import { FaInstagram } from "react-icons/fa";
 import { FaYoutube } from "react-icons/fa";
@@ -19,21 +19,85 @@ const backgroundImages = [
   bishop,
 ];
 
-export default function Hero() {
-  const [currentIndex, setCurrentIndex] = useState(0);
+// The words that change with each background picture (same order as the pictures).
+const heroMessages = [
+  {
+    heading: "A Community of Faith, Hope and Love",
+    text: "Welcome to our parish family. Join us in worship, fellowship, and service as we grow together in Christ.",
+  },
+  {
+    heading: "Growing Together in Christ",
+    text: "From our school to our outstations, we are building a parish where every family belongs.",
+  },
+  {
+    heading: "Come, Let Us Worship",
+    text: "Join us at Holy Mass every Sunday and weekday, and bring your family to the Lord’s table.",
+  },
+  {
+    heading: "United with Our Diocese",
+    text: "One family with the Catholic Diocese of Soroti, walking together in faith and service.",
+  },
+];
+
+// Shows a line of words that fly in one after another.
+function AnimatedWords({ text, className, reduceMotion }) {
+  return (
+    <motion.h2
+      key={text}
+      className={className}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      variants={{
+        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.08 } },
+        exit: { opacity: 0, transition: { duration: 0.3 } },
+      }}
+    >
+      {text.split(" ").map((word, i) => (
+        <motion.span
+          key={i}
+          className="inline-block mr-[0.3em]"
+          variants={{
+            hidden: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, rotateX: -60 },
+            visible: { opacity: 1, y: 0, rotateX: 0, transition: { duration: 0.5 } },
+          }}
+        >
+          {word}
+        </motion.span>
+      ))}
+    </motion.h2>
+  );
+}
+
+// `cards` are the live updates (Next Mass, announcements, events, causes)
+// that take turns with the welcome messages.
+export default function Hero({ cards = [] }) {
+  const reduceMotion = useReducedMotion();
+  // Counts up every 7 seconds. Drives both the background picture and the words.
+  const [step, setStep] = useState(0);
+  const currentIndex = step % backgroundImages.length;
 
   useEffect(() => {
-    if (backgroundImages.length <= 1) return;
-
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % backgroundImages.length);
-    }, 7000);
-
+    const interval = setInterval(() => setStep((prev) => prev + 1), 7000);
     return () => clearInterval(interval);
   }, []);
 
+  // Live updates from the cards (Next Mass, announcements, events, causes),
+  // taking turns: first of each card, then second of each, and so on.
+  const updates = [];
+  const longest = Math.max(0, ...cards.map((c) => c.items.length));
+  for (let i = 0; i < longest; i++) {
+    cards.forEach((c) => c.items[i] && updates.push({ ...c.items[i], badge: c.badge }));
+  }
+
+  // Alternate: welcome words, then a live update, then welcome words again...
+  const showUpdate = updates.length > 0 && step % 2 === 1;
+  const message = showUpdate
+    ? updates[Math.floor(step / 2) % updates.length]
+    : heroMessages[Math.floor(step / 2) % heroMessages.length];
+
   return (
-    <section className="relative h-screen flex items-center justify-center overflow-hidden">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       
       {/* Background Images */}
       {backgroundImages.map((image, index) => (
@@ -55,7 +119,8 @@ export default function Hero() {
       <div className="absolute inset-0 bg-black/55 z-10"></div>
 
       {/* Content */}
-      <div className="relative z-20 text-center text-white px-6 max-w-4xl">
+      <div className="relative z-20 w-full max-w-4xl px-6 py-24 flex flex-col items-center">
+      <div className="text-center text-white">
         <motion.h1 
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -74,24 +139,47 @@ export default function Hero() {
           Soroti Catholic Diocese
         </motion.p>
 
-        <motion.h2 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="text-xl md:text-2xl font-semibold mb-4"
-        >
-          A Community of Faith, Hope and Love
-        </motion.h2>
-
-        <motion.p 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
-          className="text-sm md:text-base leading-relaxed mb-10"
-        >
-          Welcome to our parish family. Join us in worship, fellowship,
-          and service as we grow together in Christ.
-        </motion.p>
+        {/* Changing words: welcome messages alternating with live updates */}
+        <div className="min-h-[10rem] md:min-h-[9rem] mb-8">
+          <AnimatePresence mode="wait">
+            <motion.div key={step} exit={{ opacity: 0, transition: { duration: 0.3 } }}>
+              {message.badge && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="inline-block text-xs font-bold uppercase tracking-widest bg-yellow-500 text-blue-950 px-3 py-1 rounded-full mb-3"
+                >
+                  {message.badge}
+                </motion.span>
+              )}
+              <AnimatedWords
+                text={message.heading || message.title}
+                reduceMotion={reduceMotion}
+                className="text-xl md:text-2xl font-semibold mb-3 text-yellow-300"
+              />
+              {message.text && (
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.6 } }}
+                  className="text-sm md:text-base leading-relaxed line-clamp-3"
+                >
+                  {message.text}
+                </motion.p>
+              )}
+              {message.to && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: { delay: 0.8 } }}
+                  className="mt-3"
+                >
+                  <Link to={message.to} className="text-yellow-300 hover:text-yellow-200 font-semibold underline-offset-4 hover:underline">
+                    Find out more →
+                  </Link>
+                </motion.div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
 
         {/* Main Buttons */}
         <motion.div 
@@ -157,6 +245,8 @@ export default function Hero() {
             </a>
           </div>
         </motion.div>
+      </div>
+
       </div>
     </section>
   );

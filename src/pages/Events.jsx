@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import PageSearch from "../components/PageSearch";
+import usePageSearch, { matchesSearch } from "../hooks/usePageSearch";
 
 export default function Events() {
   const [events, setEvents] = useState([]);
+  const [searchTerm, setSearchTerm] = usePageSearch();
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -33,14 +36,18 @@ export default function Events() {
       const eventDate = event.eventDate.toDate();
       return eventDate >= todayMidnight;
     })
-    .slice(0, 9);
+    .filter((event) =>
+      matchesSearch(searchTerm, event.title, event.description, event.location)
+    )
+    // Show the next 9, or every match when searching.
+    .slice(0, searchTerm ? undefined : 9);
 
   return (
     <div className="pt-24 px-6 md:px-20 pb-20 bg-blue-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
 
         {/* Header */}
-        <div className="text-center mb-14">
+<div className="text-center mb-8">
           <h1 className="text-4xl md:text-5xl font-bold text-blue-900 mb-4">
             Parish Events
           </h1>
@@ -50,11 +57,19 @@ export default function Events() {
           </p>
         </div>
 
+        <PageSearch value={searchTerm} onChange={setSearchTerm} placeholder="Search events..." />
+
         {/* Events Grid */}
         {upcomingEvents.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-3xl p-12 text-center shadow-sm">
-            <h2 className="text-2xl font-bold text-gray-700 mb-3">No Upcoming Events</h2>
-            <p className="text-gray-500">Please check back later for new parish events.</p>
+            <h2 className="text-2xl font-bold text-gray-700 mb-3">
+              {searchTerm ? "No Matching Events" : "No Upcoming Events"}
+            </h2>
+            <p className="text-gray-500">
+              {searchTerm
+                ? "Try a different word, or clear the search."
+                : "Please check back later for new parish events."}
+            </p>
           </div>
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">

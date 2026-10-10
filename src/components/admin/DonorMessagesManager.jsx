@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs, deleteDoc, doc, orderBy, query } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, orderBy, query, setDoc, Timestamp } from "firebase/firestore";
 import { db } from "../../firebase";
 
 export default function DonorMessagesManager() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  // IDs of messages currently shown in the home page "Thank you" strip.
+  const [shownIds, setShownIds] = useState(new Set());
 
   const fetchMessages = async () => {
     try {
       const q = query(collection(db, "donorMessages"), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const shown = await getDocs(collection(db, "donorThanks"));
+      setShownIds(new Set(shown.docs.map((d) => d.id)));
     } catch (err) {
       console.error(err);
     } finally {
@@ -22,10 +26,32 @@ export default function DonorMessagesManager() {
     fetchMessages();
   }, []);
 
+  // Copies only the name, cause and text message to the public "donorThanks"
+  // collection, so audio, video and unapproved messages stay private.
+  const toggleOnHomePage = async (msg) => {
+    try {
+      if (shownIds.has(msg.id)) {
+        await deleteDoc(doc(db, "donorThanks", msg.id));
+      } else {
+        await setDoc(doc(db, "donorThanks", msg.id), {
+          name: msg.name || "Anonymous",
+          cause: msg.cause || "",
+          message: msg.message || "",
+          createdAt: Timestamp.now(),
+        });
+      }
+      fetchMessages();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update the home page");
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!confirm("Delete this message permanently?")) return;
     try {
       await deleteDoc(doc(db, "donorMessages", id));
+      await deleteDoc(doc(db, "donorThanks", id));
       fetchMessages();
     } catch (err) {
       alert("Failed to delete");
@@ -63,12 +89,24 @@ export default function DonorMessagesManager() {
                     {msg.createdAt?.toDate()?.toLocaleString() || "Unknown date"}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDelete(msg.id)}
-                  className="text-red-600 hover:text-red-700 text-sm font-medium"
-                >
-                  Delete
-                </button>
+                <div className="flex items-center gap-4 shrink-0">
+                  <button
+                    onClick={() => toggleOnHomePage(msg)}
+                    className={`text-sm font-medium px-3 py-1.5 rounded-lg ${
+                      shownIds.has(msg.id)
+                        ? "bg-green-100 text-green-800 hover:bg-green-200"
+                        : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                    }`}
+                  >
+                    {shownIds.has(msg.id) ? "✓ On home page (remove)" : "Show on home page"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(msg.id)}
+                    className="text-red-600 hover:text-red-700 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
 
               {msg.message && (
