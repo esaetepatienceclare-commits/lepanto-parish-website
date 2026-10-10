@@ -9,13 +9,28 @@ import {
   FaCalendarAlt,
   FaMapMarkerAlt,
   FaUser,
+  FaMicrophone,
+  FaQuestionCircle,
+  FaBookOpen,
+  FaSeedling,
+  FaStar,
+  FaBell,
 } from "react-icons/fa";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { db } from "../firebase";
-import { useSearchParams } from "react-router-dom";
+import { massSchedule, getNextMass } from "../data/massSchedule";
+import { Link, useSearchParams } from "react-router-dom";
 
-// Listens to a Firestore collection and keeps the list up to date.
+const BANNER_IMAGE =
+  "https://res.cloudinary.com/dxcwgsjvk/image/upload/f_auto,q_auto/v1783097003/12_Facebook_1_wbhunw.jpg";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
+};
+
 function useLiveCollection(name, orderField, direction = "desc", max) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,10 +87,12 @@ function getYouTubeId(url) {
   return null;
 }
 
+
 function Panel({ title, subtitle, children }) {
   return (
-    <div className="bg-white/95 backdrop-blur-sm rounded-3xl p-8 md:p-10 shadow-xl border border-white/40 min-h-[280px]">
-      <h2 className="text-2xl md:text-3xl font-bold text-blue-900 mb-2">{title}</h2>
+    <div className="bg-white rounded-3xl p-6 md:p-10 shadow-lg border border-slate-100 min-h-[280px]">
+      <h2 className="text-2xl md:text-3xl font-bold text-blue-900">{title}</h2>
+      <div className="w-16 h-1 bg-amber-500 rounded-full mt-3 mb-3" />
       {subtitle && <p className="text-gray-600 mb-8">{subtitle}</p>}
       {children}
     </div>
@@ -85,13 +102,21 @@ function Panel({ title, subtitle, children }) {
 function EmptyBox({ children }) {
   return (
     <div className="text-center py-14 text-gray-500 border-2 border-dashed border-blue-100 rounded-2xl bg-blue-50/40">
+      <FaChurch className="mx-auto text-3xl text-blue-200 mb-3" />
       {children}
     </div>
   );
 }
 
 function LoadState({ loading, error, what }) {
-  if (loading) return <p className="text-center text-gray-500 py-10">Loading {what}...</p>;
+  if (loading)
+    return (
+      <div className="space-y-4 py-4" aria-label={`Loading ${what}`}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-20 rounded-2xl bg-slate-100 animate-pulse" />
+        ))}
+      </div>
+    );
   if (error)
     return (
       <div className="text-center py-10">
@@ -102,6 +127,41 @@ function LoadState({ loading, error, what }) {
       </div>
     );
   return null;
+}
+
+const scheduleIcons = {
+  sunday: <FaChurch className="text-2xl" />,
+  weekday: <FaClock className="text-2xl" />,
+  confession: <FaPray className="text-2xl" />,
+  adoration: <FaCross className="text-2xl" />,
+};
+
+function TodayBadge() {
+  return (
+    <span className="shrink-0 text-xs font-bold uppercase tracking-wide bg-amber-400 text-blue-950 px-3 py-1 rounded-full">
+      Today
+    </span>
+  );
+}
+
+// Which schedule card is happening today (0 = Sunday ... 6 = Saturday).
+function isToday(key, day) {
+  if (key === "sunday") return day === 0;
+  if (key === "weekday") return day >= 1 && day <= 5;
+  if (key === "confession") return day === 6;
+  if (key === "adoration") return day === 4;
+  return false;
+}
+
+// "in 2 days 3 hrs", "in 3 hrs 20 min", "in 15 min"
+function timeUntil(date, now) {
+  const mins = Math.max(0, Math.round((date - now) / 60000));
+  const days = Math.floor(mins / 1440);
+  const hrs = Math.floor((mins % 1440) / 60);
+  const min = mins % 60;
+  if (days > 0) return `in ${days} day${days > 1 ? "s" : ""}${hrs ? ` ${hrs} hr${hrs > 1 ? "s" : ""}` : ""}`;
+  if (hrs > 0) return `in ${hrs} hr${hrs > 1 ? "s" : ""}${min ? ` ${min} min` : ""}`;
+  return min > 0 ? `in ${min} min` : "starting now";
 }
 
 /* ---------- Homilies ---------- */
@@ -464,7 +524,18 @@ function FaithFormationPublic({ searchTerm = "" }) {
   );
 }
 
+
 export default function MassTimes() {
+  const reduceMotion = useReducedMotion();
+  const tabsRef = useRef(null);
+  const [now, setNow] = useState(() => new Date());
+
+  // Keep the "Next Mass" countdown fresh.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Links like /mass-times?tab=rcia&q=baptism (used by the site search) open a tab
   // with the search box already filled in.
   const [params] = useSearchParams();
@@ -477,167 +548,266 @@ export default function MassTimes() {
     setSearchTerm(params.get("q") || "");
   }
 
-  const massSchedule = [
-    {
-      title: "Sunday Masses",
-      icon: <FaChurch className="text-2xl" />,
-      accent: "from-blue-600 to-blue-800",
-      badge: "bg-blue-100 text-blue-800",
-      times: [
-        { label: "First Mass", time: "7:00 AM" },
-        { label: "Second Mass", time: "9:00 AM" },
-        { label: "Third Mass", time: "2:00 PM" },
-      ],
-      note: "All Sundays",
-    },
-    {
-      title: "Weekday Masses",
-      icon: <FaClock className="text-2xl" />,
-      accent: "from-emerald-600 to-emerald-800",
-      badge: "bg-emerald-100 text-emerald-800",
-      times: [{ label: "Monday – Friday", time: "7:00 AM" }],
-      note: "Daily Mass",
-    },
-    {
-      title: "Confessions",
-      icon: <FaPray className="text-2xl" />,
-      accent: "from-purple-600 to-purple-800",
-      badge: "bg-purple-100 text-purple-800",
-      times: [{ label: "Every Saturday", time: "4:00 PM" }],
-      note: "",
-    },
-    {
-      title: "Eucharistic Adoration",
-      icon: <FaCross className="text-2xl" />,
-      accent: "from-amber-500 to-amber-700",
-      badge: "bg-amber-100 text-amber-800",
-      times: [{ label: "Every Thursday", time: "After Morning Mass" }],
-      note: "Exposition of the Blessed Sacrament",
-    },
+  const sections = [
+    { key: "homilies", hint: "Sunday reflections", label: "Homilies", icon: FaMicrophone },
+    { key: "question", hint: "This week's reflection", label: "Question of the Week", icon: FaQuestionCircle },
+    { key: "about", hint: "Meet our parish priest", label: "About Father Patrick", icon: FaUser },
+    { key: "rcia", hint: "Becoming Catholic", label: "RCIA Lessons", icon: FaBookOpen },
+    { key: "faith", hint: "Grow deeper in faith", label: "Faith Formation", icon: FaSeedling },
   ];
 
-  const sections = [
-    { key: "homilies", label: "Homilies" },
-    { key: "question", label: "Question of the Week" },
-    { key: "about", label: "About Father Patrick" },
-    { key: "rcia", label: "RCIA Lessons" },
-    { key: "faith", label: "Faith Formation" },
-  ];
+  const nextMass = getNextMass(now);
+  const today = now.getDay();
+
+  // Pressing Enter in the search box jumps down to the results.
+  const showResults = () => tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
-    <div className="pt-24 min-h-screen relative overflow-hidden">
-      <div
-        className="absolute inset-0 z-0"
-        style={{
-          backgroundImage: `url('https://res.cloudinary.com/dxcwgsjvk/image/upload/v1783097003/12_Facebook_1_wbhunw.jpg')`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-b from-blue-950/70 via-blue-900/50 to-blue-950/80 z-0" />
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/40">
+      {/* ---------- BANNER WITH THE WEEKLY SCHEDULE ---------- */}
+      <section className="relative pt-28 md:pt-36 pb-10 md:pb-14 px-4 md:px-8 text-white overflow-hidden">
+        <img
+          src={BANNER_IMAGE}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover contrast-110 saturate-110"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/45 to-black/75" />
 
-      <div className="px-6 md:px-20 max-w-6xl mx-auto pb-24 relative z-10">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <p className="text-blue-200 text-sm font-semibold tracking-widest uppercase mb-3">
-            Our Lady of the Most Holy Rosary
-          </p>
-          <h1 className="text-5xl md:text-6xl font-bold text-white mb-4 drop-shadow-lg">
-            Mass Times
-          </h1>
-          <p className="text-lg text-white/85 max-w-xl mx-auto mb-8">
-            Join us in worship as one family in faith
-          </p>
+        <div className="relative z-10 max-w-6xl mx-auto">
+          {/* Title on the left, Next Mass and search on the right */}
+          <div className="grid lg:grid-cols-2 gap-6 lg:gap-10 items-end mb-8 text-center lg:text-left">
+            <div className="[text-shadow:0_2px_12px_rgba(0,0,0,0.5)]">
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="text-amber-400 font-semibold tracking-[0.25em] uppercase text-xs md:text-sm mb-3"
+              >
+                Our Lady of the Most Holy Rosary
+              </motion.p>
+              <motion.h1
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, duration: 0.8 }}
+                className="text-4xl md:text-6xl font-bold mb-3"
+              >
+                Mass Times
+              </motion.h1>
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6 }}
+                className="text-base md:text-lg text-white/90"
+              >
+                Join us in worship as one family in faith
+              </motion.p>
+            </div>
 
-          <div className="max-w-md mx-auto relative">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search homilies, lessons..."
-              className="w-full pl-12 pr-5 py-3.5 rounded-2xl bg-white/95 shadow-xl border-0 focus:outline-none focus:ring-2 focus:ring-blue-300 text-gray-800 placeholder:text-gray-400"
-            />
-            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" />
-          </div>
-        </div>
-
-        {/* Mass Schedule */}
-        <div className="grid md:grid-cols-2 gap-5 mb-8">
-          {massSchedule.map((item) => (
-            <div
-              key={item.title}
-              className="bg-white/95 backdrop-blur-sm rounded-3xl overflow-hidden shadow-xl border border-white/40 hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-300"
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8 }}
+              className="space-y-3 w-full max-w-md mx-auto lg:ml-auto lg:mr-0"
             >
-              <div className={`h-1.5 bg-gradient-to-r ${item.accent}`} />
-              <div className="p-6">
-                <div className="flex items-center gap-4 mb-5">
-                  <div
-                    className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${item.accent} text-white flex items-center justify-center shadow-md`}
-                  >
-                    {item.icon}
+              {nextMass && (
+                <div className="flex items-center gap-3 bg-white/15 backdrop-blur-md border border-white/30 rounded-2xl px-5 py-3 text-left">
+                  <span className="relative flex w-3 h-3 shrink-0">
+                    {!reduceMotion && (
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                    )}
+                    <span className="relative inline-flex w-3 h-3 rounded-full bg-amber-400" />
+                  </span>
+                  <span>
+                    <span className="block text-xs uppercase tracking-wider text-amber-300 font-semibold">
+                      Next Mass
+                    </span>
+                    <span className="block font-semibold">
+                      {nextMass.label} ·{" "}
+                      {nextMass.date.toLocaleDateString(undefined, { weekday: "long" })}{" "}
+                      {nextMass.date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      <span className="text-white/75 font-normal"> ({timeUntil(nextMass.date, now)})</span>
+                    </span>
+                  </span>
+                </div>
+              )}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && showResults()}
+                  placeholder="Search homilies, lessons..."
+                  className="w-full pl-12 pr-5 py-3.5 rounded-2xl bg-white shadow-xl border-0 focus:outline-none focus:ring-2 focus:ring-amber-400 text-gray-800 placeholder:text-gray-400"
+                />
+                <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" />
+              </div>
+            </motion.div>
+          </div>
+
+          {/* The weekly schedule, sitting on the photo */}
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.1, delayChildren: 0.9 } } }}
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4"
+          >
+            {massSchedule.map((item) => {
+              const happeningToday = isToday(item.key, today);
+              const isSunday = item.key === "sunday";
+              return (
+                <motion.div
+                  key={item.key}
+                  variants={fadeUp}
+                  className={`relative rounded-2xl p-4 md:p-5 shadow-xl flex flex-col ${isSunday ? "col-span-2 lg:col-span-1" : ""} ${
+                    isSunday
+                      ? "bg-gradient-to-br from-blue-700 to-blue-950 text-white border border-white/20"
+                      : "bg-white/95 backdrop-blur text-gray-800"
+                  } ${happeningToday ? "ring-4 ring-amber-400" : ""}`}
+                >
+                  <div className="flex items-start gap-3 mb-4">
+                    <span
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 [&>svg]:text-lg ${
+                        isSunday ? "bg-white/15" : `bg-gradient-to-br ${item.accent} text-white`
+                      }`}
+                    >
+                      {scheduleIcons[item.key]}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <h2 className={`font-bold leading-tight text-sm md:text-base ${isSunday ? "" : "text-blue-900"}`}>
+                        {item.title}
+                      </h2>
+                      {item.note && (
+                        <p className={`text-xs mt-0.5 ${isSunday ? "text-blue-200" : "text-gray-500"}`}>
+                          {item.note}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-blue-900">{item.title}</h2>
-                    {item.note && (
-                      <span
-                        className={`inline-block mt-1 text-xs font-medium px-2.5 py-0.5 rounded-full ${item.badge}`}
-                      >
-                        {item.note}
-                      </span>
+                  {happeningToday && (
+                    <span className="absolute -top-3 right-3">
+                      <TodayBadge />
+                    </span>
+                  )}
+                  <div className="mt-auto space-y-1.5">
+                    {item.times.map((slot) =>
+                      isSunday ? (
+                        <div
+                          key={slot.label}
+                          className="flex justify-between items-baseline gap-3 rounded-lg px-3 py-2 bg-white/10"
+                        >
+                          <span className="text-sm text-blue-100">{slot.label}</span>
+                          <span className="font-bold whitespace-nowrap">{slot.time}</span>
+                        </div>
+                      ) : (
+                        <div key={slot.label} className="rounded-lg px-3 py-2 bg-slate-100/80">
+                          <p className="font-bold text-blue-900 leading-snug">{slot.time}</p>
+                          <p className="text-xs text-gray-500">{slot.label}</p>
+                        </div>
+                      )
                     )}
                   </div>
-                </div>
-                <div className="space-y-3">
-                  {item.times.map((slot) => (
-                    <div
-                      key={slot.label}
-                      className="flex justify-between items-center bg-slate-50 rounded-xl px-4 py-3"
-                    >
-                      <span className="text-sm font-medium text-gray-600">{slot.label}</span>
-                      <span className="text-base font-bold text-blue-900">{slot.time}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+                </motion.div>
+              );
+            })}
+          </motion.div>
 
-        {/* Holy Days */}
-        <div className="mb-12 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-3xl p-8 text-center shadow-md">
-          <h3 className="font-bold text-lg text-amber-900 mb-2">Holy Days &amp; Special Masses</h3>
-          <p className="text-amber-800/90 max-w-lg mx-auto text-sm leading-relaxed">
-            Schedules for Christmas, Easter, Feast Days, and other special
-            celebrations will be announced through the parish bulletin and
-            announcements.
+          {/* Holy days */}
+          <p className="mt-6 text-center text-sm text-white/85 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <FaStar className="text-amber-400" />
+            <span>
+              <span className="font-semibold text-white">Holy Days &amp; Special Masses</span> are
+              shared in the parish announcements.
+            </span>
+            <Link to="/announcements" className="inline-flex items-center gap-1 font-semibold text-amber-300 hover:text-amber-200">
+              <FaBell /> See Announcements
+            </Link>
           </p>
         </div>
+      </section>
 
-        {/* Sub Navbar */}
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 p-2.5 mb-8 sticky top-20 z-20">
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {sections.map((section) => (
-              <button
-                key={section.key}
-                onClick={() => setActiveSection(section.key)}
-                className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  activeSection === section.key
-                    ? "bg-blue-700 text-white shadow-md"
-                    : "text-blue-800 hover:bg-blue-50"
-                }`}
-              >
-                {section.label}
-              </button>
-            ))}
-          </div>
+      <div className="px-4 md:px-8 max-w-6xl mx-auto pt-14 pb-24">
+        {/* ---------- FAITH CORNER ---------- */}
+        <div ref={tabsRef} className="scroll-mt-28 md:scroll-mt-32 text-center mb-10">
+          <p className="text-amber-600 font-semibold tracking-widest uppercase text-sm mb-2">
+            Grow in Faith
+          </p>
+          <h2 className="text-3xl md:text-4xl font-bold text-blue-900">Faith Corner</h2>
+          <p className="text-gray-600 mt-3 max-w-xl mx-auto">
+            Homilies, reflections and lessons from our parish, all in one place.
+          </p>
+          <div className="w-20 h-1 bg-amber-500 mx-auto mt-4 rounded-full" />
         </div>
 
-        {/* Content */}
-        {activeSection === "homilies" && <HomiliesPublic searchTerm={searchTerm} />}
-        {activeSection === "question" && <QuestionOfTheWeekPublic searchTerm={searchTerm} />}
-        {activeSection === "about" && <AboutFatherPublic />}
-        {activeSection === "rcia" && <RciaPublic searchTerm={searchTerm} />}
-        {activeSection === "faith" && <FaithFormationPublic searchTerm={searchTerm} />}
+        <div className="lg:grid lg:grid-cols-[280px_1fr] lg:gap-8 lg:items-start">
+          {/* Sidebar: a swipeable strip on phones, a menu on the left on big screens */}
+          <aside className="sticky top-[76px] md:top-[88px] lg:top-[112px] z-20 mb-8 lg:mb-0 space-y-4">
+            <nav className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-100 p-2 lg:p-3">
+              <p className="hidden lg:block px-3 pt-1 pb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                Explore
+              </p>
+              <div className="flex lg:flex-col gap-1.5 overflow-x-auto">
+                {sections.map((section) => {
+                  const Icon = section.icon;
+                  const active = activeSection === section.key;
+                  return (
+                    <button
+                      key={section.key}
+                      onClick={() => setActiveSection(section.key)}
+                      className={`relative shrink-0 flex items-center gap-3 px-4 py-2.5 lg:py-3 rounded-xl text-sm font-semibold text-left transition-colors duration-200 ${
+                        active ? "text-white" : "text-blue-800 hover:bg-blue-50"
+                      }`}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId="mass-times-tab"
+                          className="absolute inset-0 bg-blue-700 rounded-xl shadow-md"
+                          transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                        />
+                      )}
+                      <span
+                        className={`relative z-10 lg:w-9 lg:h-9 lg:rounded-lg flex items-center justify-center ${
+                          active ? "lg:bg-white/15" : "lg:bg-blue-50"
+                        }`}
+                      >
+                        <Icon />
+                      </span>
+                      <span className="relative z-10">
+                        <span className="block whitespace-nowrap">{section.label}</span>
+                        <span
+                          className={`hidden lg:block text-xs font-normal ${
+                            active ? "text-blue-100" : "text-gray-500"
+                          }`}
+                        >
+                          {section.hint}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
+
+          </aside>
+
+          {/* Content */}
+          <div className="min-w-0">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeSection}
+                initial={reduceMotion ? false : { opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduceMotion ? undefined : { opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                {activeSection === "homilies" && <HomiliesPublic searchTerm={searchTerm} />}
+                {activeSection === "question" && <QuestionOfTheWeekPublic searchTerm={searchTerm} />}
+                {activeSection === "about" && <AboutFatherPublic />}
+                {activeSection === "rcia" && <RciaPublic searchTerm={searchTerm} />}
+                {activeSection === "faith" && <FaithFormationPublic searchTerm={searchTerm} />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
     </div>
   );
