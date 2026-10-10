@@ -108,6 +108,7 @@ export default function Support() {
   }, []);
 
     const causes = visibleCauses(withOriginals(savedCauses || []));
+    const ongoing = causes.filter((c) => c.kind !== "project");
   const projects = causes.filter((c) => c.kind === "project");
   const selectedCause = causes.find((c) => c.id === selectedId) || null;
   const pay = selectedCause ? paymentOptions(selectedCause) : null;
