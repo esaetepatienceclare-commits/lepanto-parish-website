@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   collection,
   addDoc,
-  getDocs,
   deleteDoc,
   updateDoc,
   doc,
-  Timestamp,
-  query,
-  orderBy,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import useCollection from "../../hooks/useCollection";
 
 const AUDIENCES = ["Children", "Youth", "Adults", "Families", "Sacrament Preparation", "Everyone"];
 
 export default function FaithFormationManager() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading, reload: fetchItems } = useCollection("faithFormation", {
+    orderField: "createdAt",
+    errorMessage: "Error loading programmes. Check console.",
+  });
   const [saving, setSaving] = useState(false);
 
   const [title, setTitle] = useState("");
@@ -26,23 +26,6 @@ export default function FaithFormationManager() {
   const [venue, setVenue] = useState("");
   const [contact, setContact] = useState("");
   const [editingId, setEditingId] = useState(null);
-
-  const fetchItems = async () => {
-    try {
-      const q = query(collection(db, "faithFormation"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error("Fetch error:", err);
-      alert("Error loading programmes. Check console.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchItems();
-  }, []);
 
   const resetForm = () => {
     setTitle("");

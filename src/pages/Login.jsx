@@ -49,7 +49,7 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, email, password);
       localStorage.setItem("userEmail", email);
       navigate("/admin");
-    } catch (error) {
+    } catch {
       setError("Login failed: Invalid email or password");
     } finally {
       setLoading(false);

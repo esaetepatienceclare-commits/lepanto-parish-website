@@ -1,46 +1,26 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   collection,
   addDoc,
-  getDocs,
   deleteDoc,
   updateDoc,
   doc,
-  Timestamp,
-  query,
-  orderBy,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import useCollection from "../../hooks/useCollection";
 
 export default function QuestionOfTheWeekManager() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading, reload: fetchItems } = useCollection("questionOfTheWeek", {
+    orderField: "createdAt",
+    errorMessage: "Error loading questions. Check console.",
+  });
   const [saving, setSaving] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [weekLabel, setWeekLabel] = useState("");
   const [editingId, setEditingId] = useState(null);
-
-  const fetchItems = async () => {
-    try {
-      const q = query(
-        collection(db, "questionOfTheWeek"),
-        orderBy("createdAt", "desc")
-      );
-      const snap = await getDocs(q);
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error("Fetch error:", err);
-      alert("Error loading questions. Check console.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchItems();
-  }, []);
 
   const resetForm = () => {
     setQuestion("");

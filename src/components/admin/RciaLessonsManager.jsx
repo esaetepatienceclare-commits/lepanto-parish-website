@@ -1,38 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   collection,
   addDoc,
-  getDocs,
   deleteDoc,
   updateDoc,
   doc,
-  Timestamp,
-  query,
-  orderBy,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
-
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-async function uploadDocument(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) throw new Error("Document upload failed");
-  const data = await res.json();
-  return data.secure_url;
-}
+import { uploadDocument } from "../../utils/cloudinary";
+import useCollection from "../../hooks/useCollection";
 
 export default function RciaLessonsManager() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading, reload: fetchItems } = useCollection("rciaLessons", {
+    orderField: "lessonNumber",
+    direction: "asc",
+    errorMessage: "Error loading lessons. Check console.",
+  });
   const [saving, setSaving] = useState(false);
 
   const [lessonNumber, setLessonNumber] = useState("");
@@ -45,23 +29,6 @@ export default function RciaLessonsManager() {
   const [editingId, setEditingId] = useState(null);
 
   const fileRef = useRef(null);
-
-  const fetchItems = async () => {
-    try {
-      const q = query(collection(db, "rciaLessons"), orderBy("lessonNumber", "asc"));
-      const snap = await getDocs(q);
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error("Fetch error:", err);
-      alert("Error loading lessons. Check console.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchItems();
-  }, []);
 
   const resetForm = () => {
     setLessonNumber("");

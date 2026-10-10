@@ -1,36 +1,16 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import {
   collection,
   addDoc,
-  getDocs,
   deleteDoc,
   updateDoc,
   doc,
-  Timestamp,
-  query,
-  orderBy,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import useMediaRecorder from "../../hooks/useMediaRecorder";
-
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-async function uploadToCloudinary(file, resourceType = "video") {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  const endpoint = resourceType === "raw" ? "raw" : resourceType;
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${endpoint}/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) throw new Error("Upload failed");
-  const data = await res.json();
-  return data.secure_url;
-}
+import { uploadToCloudinary } from "../../utils/cloudinary";
+import useCollection from "../../hooks/useCollection";
 
 const initialForm = {
   title: "",
@@ -68,8 +48,7 @@ function formReducer(state, action) {
 }
 
 export default function HomiliesManager() {
-  const [homilies, setHomilies] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items: homilies, loading, reload: fetchHomilies } = useCollection("homilies", { orderField: "createdAt" });
   const [uploading, setUploading] = useState(false);
   const [form, dispatch] = useReducer(formReducer, initialForm);
 
@@ -81,22 +60,6 @@ export default function HomiliesManager() {
 
   const setField = (field, value) =>
     dispatch({ type: "SET_FIELD", field, value });
-
-  const fetchHomilies = async () => {
-    try {
-      const q = query(collection(db, "homilies"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setHomilies(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchHomilies();
-  }, []);
 
   const resetForm = () => {
     dispatch({ type: "RESET" });

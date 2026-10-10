@@ -16,21 +16,7 @@ import {
   paymentOptions,
   visibleCauses,
 } from "../../data/supportCauses";
-
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-async function uploadImage(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
-    method: "POST",
-    body: formData,
-  });
-  if (!res.ok) throw new Error("Upload failed");
-  return (await res.json()).secure_url;
-}
+import { uploadImage } from "../../utils/cloudinary";
 
 const EMPTY_FORM = {
   kind: "cause",

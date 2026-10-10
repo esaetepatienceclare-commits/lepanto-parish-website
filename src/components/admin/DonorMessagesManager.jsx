@@ -23,6 +23,8 @@ export default function DonorMessagesManager() {
   };
 
   useEffect(() => {
+    // Load once when the tab opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchMessages();
   }, []);
 
@@ -54,6 +56,7 @@ export default function DonorMessagesManager() {
       await deleteDoc(doc(db, "donorThanks", id));
       fetchMessages();
     } catch (err) {
+      console.error(err);
       alert("Failed to delete");
     }
   };

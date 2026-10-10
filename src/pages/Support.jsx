@@ -10,25 +10,7 @@ import {
   paymentOptions,
   visibleCauses,
 } from "../data/supportCauses";
-
-// Cloudinary
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-async function uploadToCloudinary(file, resourceType) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) throw new Error("Upload failed");
-  const data = await res.json();
-  return data.secure_url;
-}
+import { uploadToCloudinary } from "../utils/cloudinary";
 
 // One card on the Support page.
 function CauseCard({ cause, onSelect }) {

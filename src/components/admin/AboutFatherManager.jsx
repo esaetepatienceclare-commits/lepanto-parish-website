@@ -9,25 +9,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import useMediaRecorder from "../../hooks/useMediaRecorder";
-
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-// Images go to Cloudinary's "image" endpoint; audio and video both use "video".
-async function uploadToCloudinary(file, resourceType) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) throw new Error("Upload failed");
-  const data = await res.json();
-  return data.secure_url;
-}
+import { uploadToCloudinary } from "../../utils/cloudinary";
 
 function SavedMedia({ label, url, onRemove, children }) {
   if (!url) return null;
@@ -92,6 +74,8 @@ export default function AboutFatherManager() {
   };
 
   useEffect(() => {
+    // Load once when the tab opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProfile();
   }, []);
 

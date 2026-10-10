@@ -1,20 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   collection,
-  getDocs,
   addDoc,
   updateDoc,
   deleteDoc,
   doc,
-  Timestamp,
-  query,
-  orderBy
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { uploadToCloudinary } from "../../utils/cloudinary";
+import useCollection from "../../hooks/useCollection";
 
 export default function GalleryManager() {
-  const [galleryItems, setGalleryItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items: galleryItems, loading, reload: fetchGallery } = useCollection("gallery", { orderField: "createdAt" });
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [mediaType, setMediaType] = useState("image");
@@ -30,52 +28,14 @@ export default function GalleryManager() {
   const videoRef = useRef(null);
   const documentRef = useRef(null);
 
-  const fetchGallery = async () => {
-    setLoading(true);
-    try {
-      const q = query(collection(db, "gallery"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setGalleryItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error(err);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchGallery();
-  }, []);
-
-  // Improved upload function
-  const uploadToCloudinary = async (file, type = "image") => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", "Lepanto");
-
-    let endpoint = "image";
-    if (type === "video") endpoint = "video";
-    if (type === "document") endpoint = "raw";
-
+  // Shows a short message while the file uploads.
+  const upload = async (file, type) => {
     setUploadProgress(`Uploading ${type}…`);
-
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/dxcwgsjvk/${endpoint}/upload`,
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const data = await res.json();
-    setUploadProgress("");
-
-    if (!res.ok || !data.secure_url) {
-      console.error("Cloudinary error:", data);
-      throw new Error(data.error?.message || "Upload failed");
+    try {
+      return await uploadToCloudinary(file, type === "document" ? "raw" : type);
+    } finally {
+      setUploadProgress("");
     }
-
-    // For documents, return the public URL
-    return data.secure_url;
   };
 
   const handleSubmit = async (e) => {
@@ -89,15 +49,15 @@ export default function GalleryManager() {
       let fileName = "";
 
       if (mediaType === "image" && imageFile) {
-        finalMediaUrl = await uploadToCloudinary(imageFile, "image");
+        finalMediaUrl = await upload(imageFile, "image");
       }
 
       if (mediaType === "video" && videoFile) {
-        finalMediaUrl = await uploadToCloudinary(videoFile, "video");
+        finalMediaUrl = await upload(videoFile, "video");
       }
 
       if (mediaType === "document" && documentFile) {
-        finalMediaUrl = await uploadToCloudinary(documentFile, "document");
+        finalMediaUrl = await upload(documentFile, "document");
         fileName = documentFile.name;
       }
 
@@ -173,6 +133,7 @@ export default function GalleryManager() {
       await deleteDoc(doc(db, "gallery", id));
       fetchGallery();
     } catch (err) {
+      console.error(err);
       alert("Failed to delete");
     }
   };

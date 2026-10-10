@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   collection, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp, query, where
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import useCollection from "../../hooks/useCollection";
 
 // ==================== HELPERS ====================
 const getOccurrence = (rule) => {
@@ -71,8 +72,7 @@ const calculateFutureDates = (rule, weeks = 12) => {
 
 // ==================== MAIN COMPONENT ====================
 export default function EventRulesManager() {
-  const [eventRules, setEventRules] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items: eventRules, loading, reload: fetchRules } = useCollection("eventRules");
   const [uploading, setUploading] = useState(false);
 
   const [form, setForm] = useState({
@@ -82,15 +82,6 @@ export default function EventRulesManager() {
 
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
-
-  const fetchRules = async () => {
-    setLoading(true);
-    const snap = await getDocs(collection(db, "eventRules"));
-    setEventRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchRules(); }, []);
 
   // ==================== GENERATE EVENTS ====================
   const generateEventsSafely = async (rule, ruleId) => {
@@ -131,6 +122,7 @@ export default function EventRulesManager() {
       alert("Events generated successfully!");
       fetchRules();
     } catch (err) {
+      console.error(err);
       alert("Generation failed");
     } finally {
       setUploading(false);
@@ -150,6 +142,7 @@ export default function EventRulesManager() {
       alert("Rule added and events auto-generated!");
       setForm({ title: "", description: "", type: "weekly", dayOfWeek: "sunday", occurrence: "1st", date: "", time: "", location: "" });
     } catch (err) {
+      console.error(err);
       alert("Failed to add rule");
     } finally {
       setUploading(false);
@@ -175,6 +168,7 @@ export default function EventRulesManager() {
       fetchRules();
       alert("Rule updated.");
     } catch (err) {
+      console.error(err);
       alert("Failed to update");
     } finally {
       setUploading(false);

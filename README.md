@@ -1,16 +1,61 @@
-# React + Vite
+# Our Lady of the Most Holy Rosary Parish, Lepanto
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The website of Our Lady of the Most Holy Rosary Parish, Lepanto, Asamuk (Soroti Catholic Diocese, Amuria District).
 
-Currently, two official plugins are available:
+Visitors can find Mass times, events, announcements, the photo gallery, homilies and lessons, ways to support the parish, and contact details. Parish staff sign in at `/login` to update everything from the Admin panel.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Running it on your computer
 
-## React Compiler
+You need [Node.js](https://nodejs.org) installed.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```
+npm install      # first time only
+npm run dev      # opens the site at http://localhost:5173
+```
 
-## Expanding the ESLint configuration
+Other commands:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| Command           | What it does                                     |
+| ----------------- | ------------------------------------------------ |
+| `npm run lint`    | Checks the code for mistakes                     |
+| `npm run build`   | Builds the finished site into the `dist` folder  |
+| `npm run preview` | Shows the built site, to check it before going live |
+
+## Pages
+
+| Address          | Page                                                        |
+| ---------------- | ----------------------------------------------------------- |
+| `/`              | Home: welcome slides, next Mass, latest news and events     |
+| `/about`         | About the parish                                            |
+| `/mass-times`    | Mass schedule and the Faith Corner (homilies, Question of the Week, About Father, RCIA, Faith Formation) |
+| `/events`        | Upcoming events                                             |
+| `/announcements` | Parish announcements, with voice notes and videos           |
+| `/gallery`       | Photos, videos and documents                                |
+| `/support`       | Causes and projects to support, and how to give             |
+| `/contact`       | Phone, WhatsApp, email, office hours and a message form     |
+| `/login`, `/admin` | Sign-in and the Admin panel for parish staff              |
+
+## How it is built
+
+- **React + Vite**, styled with **Tailwind CSS**, animations with **framer-motion**.
+- **Firebase**: Firestore stores the content and Firebase Auth handles admin sign-in (`src/firebase.js`).
+- **Cloudinary** stores uploaded photos, audio, video and documents. All uploads go through `src/utils/cloudinary.js`, which also shrinks large photos before sending them.
+
+## Where things live
+
+```
+src/
+  pages/              one file per page (Home, MassTimes, Events, Admin, ...)
+  components/         shared pieces (Navbar, Footer, Hero, cards)
+  components/admin/   one manager per Admin tab
+  hooks/              shared helpers (useCollection loads a Firestore list for the Admin tabs)
+  utils/cloudinary.js uploads to Cloudinary
+  data/               fixed content, such as the Mass schedule and default support causes
+  assets/             photos used on the pages
+public/               the site icon (favicon.svg)
+```
+
+## Adding a new Admin tab
+
+1. Create a manager in `src/components/admin/`. To load its list, use `useCollection("yourCollection")`.
+2. In `src/pages/Admin.jsx`, add a line for it to one of the `GROUPS` and to `MANAGERS`.

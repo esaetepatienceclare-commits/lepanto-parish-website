@@ -1,36 +1,15 @@
-import { useEffect, useReducer, useRef, useState, useCallback } from "react";
+import { useReducer, useRef, useState, useCallback } from "react";
 import {
   collection,
   addDoc,
-  getDocs,
   deleteDoc,
   updateDoc,
   doc,
-  Timestamp,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../firebase";
-
-// Cloudinary Helpers
-const CLOUD_NAME = "dxcwgsjvk";
-const UPLOAD_PRESET = "Lepanto";
-
-async function uploadToCloudinary(file, resourceType, filename) {
-  const formData = new FormData();
-  formData.append("file", file, filename);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) throw new Error("Upload failed");
-  const data = await res.json();
-  return data.secure_url;
-}
-
-const uploadImage = (file) => uploadToCloudinary(file, "image");
-const uploadMedia = (file) => uploadToCloudinary(file, "video", file.name || "media.webm");
+import { uploadImage, uploadMedia } from "../../utils/cloudinary";
+import useCollection from "../../hooks/useCollection";
 
 // ---------- Media Recorder Hook (Audio + Video) ----------
 function useMediaRecorder(type = "audio") {
@@ -154,8 +133,7 @@ function formReducer(state, action) {
 }
 
 export default function AnnouncementManager() {
-  const [announcements, setAnnouncements] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { items: announcements, loading, reload: fetchAnnouncements } = useCollection("announcements");
   const [uploading, setUploading] = useState(false);
 
   const [formState, dispatch] = useReducer(formReducer, initialFormState);
@@ -167,21 +145,6 @@ export default function AnnouncementManager() {
   const videoRecorder = useMediaRecorder("video");
 
   const setField = (field, value) => dispatch({ type: "SET_FIELD", field, value });
-
-  const fetchAnnouncements = async () => {
-    try {
-      const snap = await getDocs(collection(db, "announcements"));
-      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAnnouncements();
-  }, []);
 
   const resetForm = () => {
     dispatch({ type: "RESET" });
