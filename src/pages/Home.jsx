@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit, where, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { motion, useReducedMotion } from "framer-motion";
 import Hero from "../components/Hero";
@@ -50,6 +50,30 @@ function useLatest(name, max, orderField = "createdAt") {
   }, [name, max, orderField]);
 
   return { items, loading };
+}
+
+// The next upcoming events, soonest first (the same ones the Events page shows first).
+function useUpcomingEvents(max) {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const q = query(
+      collection(db, "events"),
+      where("eventDate", ">=", Timestamp.fromDate(midnight)),
+      orderBy("eventDate", "asc"),
+      limit(max)
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => setItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))),
+      (err) => console.error("events error:", err)
+    );
+    return () => unsubscribe();
+  }, [max]);
+
+  return items;
 }
 
 // Re-renders every `ms` so countdowns stay current.
@@ -449,7 +473,7 @@ function SupportSection({ thanks, causes }) {
 
 export default function Home() {
   const { items: announcements, loading } = useLatest("announcements", 10);
-  const { items: allEvents } = useLatest("events", 30, "eventDate");
+  const upcomingEvents = useUpcomingEvents(3);
   const { items: homilies } = useLatest("homilies", 1);
   const { items: questions } = useLatest("questionOfTheWeek", 1);
   const { items: thanks } = useLatest("donorThanks", 20);
@@ -463,15 +487,6 @@ export default function Home() {
     const expiry = item.expiryDate.toDate?.() || new Date(item.expiryDate);
     return expiry.toISOString().split("T")[0] >= today;
   });
-
-  const upcomingEvents = useMemo(() => {
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    return allEvents
-      .filter((e) => e.eventDate?.toDate && e.eventDate.toDate() >= midnight)
-      .sort((a, b) => a.eventDate.seconds - b.eventDate.seconds)
-      .slice(0, 3);
-  }, [allEvents]);
 
   const now = useNow();
   const nextMass = getNextMass(now);
