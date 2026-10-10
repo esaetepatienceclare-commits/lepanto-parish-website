@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getCountFromServer } from "firebase/firestore";
+import { collection, getCountFromServer, query, where } from "firebase/firestore";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
@@ -17,6 +17,7 @@ import {
   User,
   Mic,
   Globe,
+  Inbox,
 } from "lucide-react";
 
 import { auth, db } from "../firebase";
@@ -32,10 +33,17 @@ import AboutFatherManager from "../components/admin/AboutFatherManager";
 import RciaLessonsManager from "../components/admin/RciaLessonsManager";
 import FaithFormationManager from "../components/admin/FaithFormationManager";
 import SupportCausesManager from "../components/admin/SupportCausesManager";
+import ContactMessagesManager from "../components/admin/ContactMessagesManager";
 
 // The sidebar, grouped so related things sit together.
 // To add a new tab, add a line to one of the groups and a line in MANAGERS below.
 const GROUPS = [
+  {
+    title: "Inbox",
+    tabs: [
+      { key: "contactMessages", label: "Messages", icon: Inbox, hint: "Messages sent from the Contact page" },
+    ],
+  },
   {
     title: "Parish News",
     tabs: [
@@ -76,6 +84,7 @@ const MANAGERS = {
   rciaLessons: RciaLessonsManager,
   faithFormation: FaithFormationManager,
   supportCauses: SupportCausesManager,
+  contactMessages: ContactMessagesManager,
 };
 
 // The counts shown at the top. Click one to open its tab.
@@ -111,6 +120,7 @@ export default function Admin() {
   const [tab, setTab] = useState(savedTab);
   const [user, setUser] = useState(null);
   const [counts, setCounts] = useState({});
+  const [newMessages, setNewMessages] = useState(0);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -128,6 +138,16 @@ export default function Admin() {
         .then((snap) => setCounts((c) => ({ ...c, [s.collection]: snap.data().count })))
         .catch(() => setCounts((c) => ({ ...c, [s.collection]: "–" })));
     });
+  }, [user]);
+
+  // How many contact messages are still unread, for the badge on the Messages tab.
+  const countNewMessages = () =>
+    getCountFromServer(query(collection(db, "contactMessages"), where("status", "==", "new")))
+      .then((snap) => setNewMessages(snap.data().count))
+      .catch(() => setNewMessages(0));
+
+  useEffect(() => {
+    if (user) countNewMessages();
   }, [user]);
 
   // Remember the last tab, so a refresh opens the same place.
@@ -268,6 +288,11 @@ export default function Admin() {
                           )}
                           <Icon size={18} className="relative z-10 shrink-0" />
                           <span className="relative z-10 whitespace-nowrap">{item.label}</span>
+                          {item.key === "contactMessages" && newMessages > 0 && (
+                            <span className="relative z-10 ml-auto bg-amber-400 text-blue-950 text-[11px] font-bold min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                              {newMessages}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -288,7 +313,7 @@ export default function Admin() {
                 transition={{ duration: 0.25 }}
                 className="p-4 md:p-8 min-h-[400px]"
               >
-                <Manager />
+                <Manager onChange={countNewMessages} />
               </motion.div>
             </AnimatePresence>
           </div>
