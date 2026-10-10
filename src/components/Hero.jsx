@@ -39,7 +39,10 @@ const heroMessages = [
   },
 ];
 
-// Shows a line of words that fly in one after another.
+// A soft ease used for all the hero fades.
+const GENTLE = [0.25, 0.1, 0.25, 1];
+
+// Shows a line of words that drift in one after another.
 function AnimatedWords({ text, className, reduceMotion }) {
   return (
     <motion.h2
@@ -49,8 +52,8 @@ function AnimatedWords({ text, className, reduceMotion }) {
       animate="visible"
       exit="exit"
       variants={{
-        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.08 } },
-        exit: { opacity: 0, transition: { duration: 0.3 } },
+        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.12 } },
+        exit: { opacity: 0, transition: { duration: 0.8, ease: GENTLE } },
       }}
     >
       {text.split(" ").map((word, i) => (
@@ -58,8 +61,8 @@ function AnimatedWords({ text, className, reduceMotion }) {
           key={i}
           className="inline-block mr-[0.3em]"
           variants={{
-            hidden: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, rotateX: -60 },
-            visible: { opacity: 1, y: 0, rotateX: 0, transition: { duration: 0.5 } },
+            hidden: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, filter: "blur(6px)" },
+            visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 1.1, ease: GENTLE } },
           }}
         >
           {word}
@@ -73,12 +76,12 @@ function AnimatedWords({ text, className, reduceMotion }) {
 // that take turns with the welcome messages.
 export default function Hero({ cards = [] }) {
   const reduceMotion = useReducedMotion();
-  // Counts up every 7 seconds. Drives both the background picture and the words.
+  // Counts up every 8 seconds. Drives both the background picture and the words.
   const [step, setStep] = useState(0);
   const currentIndex = step % backgroundImages.length;
 
   useEffect(() => {
-    const interval = setInterval(() => setStep((prev) => prev + 1), 7000);
+    const interval = setInterval(() => setStep((prev) => prev + 1), 8000);
     return () => clearInterval(interval);
   }, []);
 
@@ -109,9 +112,17 @@ export default function Hero({ cards = [] }) {
           style={{
             objectPosition: index === 0 ? "center 18%" : "center 30%",
           }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: index === currentIndex ? 1 : 0 }}
-          transition={{ duration: 1.5 }}
+          initial={{ opacity: 0, scale: 1.08 }}
+          animate={
+            index === currentIndex
+              ? { opacity: 1, scale: reduceMotion ? 1 : 1.0 }
+              : { opacity: 0, scale: reduceMotion ? 1 : 1.08 }
+          }
+          // A slow cross-fade, with the picture drifting gently while it shows.
+          transition={{
+            opacity: { duration: 2.5, ease: "easeInOut" },
+            scale: { duration: index === currentIndex ? 9 : 2.5, ease: "easeOut" },
+          }}
         />
       ))}
 
@@ -142,11 +153,14 @@ export default function Hero({ cards = [] }) {
         {/* Changing words: welcome messages alternating with live updates */}
         <div className="min-h-[10rem] md:min-h-[9rem] mb-8">
           <AnimatePresence mode="wait">
-            <motion.div key={step} exit={{ opacity: 0, transition: { duration: 0.3 } }}>
+            <motion.div
+              key={step}
+              exit={{ opacity: 0, y: -8, filter: "blur(4px)", transition: { duration: 0.8, ease: GENTLE } }}
+            >
               {message.badge && (
                 <motion.span
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0, transition: { duration: 0.9, ease: GENTLE } }}
                   className="inline-block text-xs font-bold uppercase tracking-widest bg-yellow-500 text-blue-950 px-3 py-1 rounded-full mb-3"
                 >
                   {message.badge}
@@ -160,7 +174,7 @@ export default function Hero({ cards = [] }) {
               {message.text && (
                 <motion.p
                   initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.6 } }}
+                  animate={{ opacity: 1, y: 0, transition: { delay: 0.7, duration: 1, ease: GENTLE } }}
                   className="text-sm md:text-base leading-relaxed line-clamp-3"
                 >
                   {message.text}
@@ -169,7 +183,7 @@ export default function Hero({ cards = [] }) {
               {message.to && (
                 <motion.div
                   initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, transition: { delay: 0.8 } }}
+                  animate={{ opacity: 1, transition: { delay: 1.1, duration: 0.9, ease: GENTLE } }}
                   className="mt-3"
                 >
                   <Link to={message.to} className="text-yellow-300 hover:text-yellow-200 font-semibold underline-offset-4 hover:underline">

@@ -5,7 +5,7 @@ import { db } from "../firebase";
 import useMediaRecorder from "../hooks/useMediaRecorder";
 import {
   CAUSE_COLORS,
-  defaultCauses,
+    withOriginals,
   formatUGX,
   paymentOptions,
   visibleCauses,
@@ -107,8 +107,7 @@ export default function Support() {
     return () => unsubscribe();
   }, []);
 
-  const causes = visibleCauses(savedCauses && savedCauses.length > 0 ? savedCauses : defaultCauses);
-  const ongoing = causes.filter((c) => c.kind !== "project");
+    const causes = visibleCauses(withOriginals(savedCauses || []));
   const projects = causes.filter((c) => c.kind === "project");
   const selectedCause = causes.find((c) => c.id === selectedId) || null;
   const pay = selectedCause ? paymentOptions(selectedCause) : null;
